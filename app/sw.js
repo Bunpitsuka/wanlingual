@@ -1,6 +1,6 @@
 // sw.js — オフライン用。アプリ本体は事前キャッシュ、フォント等はキャッシュしつつネットワーク優先。
-const VERSION = 'wl-v1';
-const SHELL = ['./', './index.html', './css/app.css', './js/app.js', './js/features.js', './js/classify.js', './js/store.js', './js/mic.js', './manifest.webmanifest', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png'];
+const VERSION = 'wl-v2';
+const SHELL = ['./', './index.html', './css/app.css', './js/app.js', './js/features.js', './js/classify.js', './js/store.js', './js/mic.js', './js/share.js', './js/recs.js', './affiliate.json', './manifest.webmanifest', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

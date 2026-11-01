@@ -1,0 +1,6 @@
+{
+  "_説明": "Amazon アソシエイトのトラッキングID（例: xxxx-22）と楽天アフィリエイトID を入れると、正解を教えたあとに「気持ち別おすすめ」が表示されます。両方空なら何も表示しません。Amazon は管理画面の『サイト情報』に https://bunpitsuka.github.io/wanlingual/ を登録してから入れてください。",
+  "enabled": true,
+  "amazonTag": "",
+  "rakutenId": ""
+}

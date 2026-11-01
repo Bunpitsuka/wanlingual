@@ -3,10 +3,14 @@ import { analyzeSamples, mixdown } from './features.js';
 import { CATS, CAT, predict, top, growth } from './classify.js';
 import { loadSamples, saveSamples, loadDogName, saveDogName, loadOwnerName, saveOwnerName, exportJSON, importJSON } from './store.js';
 import { Listener, platformNotes } from './mic.js';
+import { share } from './share.js';
+import { loadConfig as loadRecsConfig, links as recLinks, DISCLOSURE } from './recs.js';
 
 const $ = id => document.getElementById(id);
 let samples = loadSamples();
 let current = null;        // {f, pred, source}
+let last = null;           // 直近の判定（シェア用）{f, pred, conf, quote}
+let recsCfg = null;        // affiliate.json（無ければ null）
 let listener = null;
 let lastMicAt = 0;
 
@@ -82,6 +86,8 @@ function showResult(a, source) {
   $('predConf').textContent = `たぶん ${Math.round(s[c.k] * 100)}%（推測です）`;
   $('quote').textContent = c.line(dog, owner);
   current = { f: a.feats, pred: c.k, source };
+  last = { f: a.feats, pred: c.k, conf: s[c.k], quote: c.line(dog, owner) };
+  $('sharebox').hidden = true; $('recs').hidden = true;
   renderChoices(c.k); $('answer').classList.add('on');
   $('result').classList.remove('idle');
   if (source === 'mic') { try { navigator.vibrate?.(80); } catch {} }
@@ -107,6 +113,24 @@ function label(k) {
   $('answer').classList.remove('on');
   toast(current.pred === k ? '的中！この特徴を覚えました' : `なるほど。この声は「${CAT[k].label}」と覚えました`);
   current = null;
+  renderRecs(k);
+}
+
+// ---------- 気持ち別おすすめ（affiliate.json に ID があるときだけ） ----------
+function renderRecs(k) {
+  const items = recLinks(k, recsCfg); const el = $('recs');
+  if (!items.length) { el.hidden = true; return; }
+  const dog = $('dogName').value.trim() || 'モカ';
+  $('recsTitle').textContent = `${dog}が「${CAT[k].label}」のときに`;
+  const ul = $('recList'); ul.innerHTML = '';
+  for (const it of items) {
+    const li = document.createElement('li');
+    const shops = [it.amazon && `<a href="${it.amazon}" target="_blank" rel="noopener sponsored">Amazonで探す</a>`, it.rakuten && `<a href="${it.rakuten}" target="_blank" rel="noopener sponsored">楽天で探す</a>`].filter(Boolean).join('');
+    li.innerHTML = `<b>${it.label}</b><p class="why">${it.why}</p><div class="shops">${shops}</div>`;
+    ul.appendChild(li);
+  }
+  $('recsNote').textContent = DISCLOSURE;
+  el.hidden = false;
 }
 
 // ---------- マイク監視 ----------
@@ -168,6 +192,18 @@ $('speak').addEventListener('click', () => {
   const t = $('quote').textContent; if (!t || !('speechSynthesis' in window)) return;
   try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(t); u.lang = 'ja-JP'; u.pitch = 1.4; u.rate = 1.05; speechSynthesis.speak(u); } catch {}
 });
+$('share').addEventListener('click', async () => {
+  if (!last) return;
+  const g = growth(samples); const c = CAT[last.pred];
+  const r = { dog: $('dogName').value.trim() || 'モカ', label: c.label, conf: last.conf, quote: last.quote, lv: g.n, stage: g.stage, n: last.f.n, dur: last.f.dur, f0: last.f.f0 };
+  const how = await share(r, {
+    onFallback: (dataUrl, text, copied) => {
+      $('shareImg').src = dataUrl; $('sharebox').hidden = false;
+      $('shareNote').textContent = copied ? '投稿文をコピーしました。画像を保存して、Threads や X に貼ってください。' : '画像を保存して、Threads や X に貼ってください。';
+    },
+  });
+  if (how === 'copied') toast('投稿文をコピーしました');
+});
 $('export').addEventListener('click', async () => {
   const txt = exportJSON($('dogName').value.trim(), samples);
   try { await navigator.clipboard.writeText(txt); toast(`学習データをコピーしました（${samples.length}件）`); }
@@ -187,9 +223,10 @@ $('reset').addEventListener('click', () => {
 });
 
 draw(null); renderBars(null); renderGrowth(); renderHist(); renderNotes(); setMicUI(false);
+loadRecsConfig().then(c => { recsCfg = c; });
 
 // PWA
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(e => console.warn('sw', e)));
 }
-window.__wl = { get samples() { return samples; }, analyzeSamples, predict }; // テスト用フック
+window.__wl = { get samples() { return samples; }, analyzeSamples, predict, setRecsConfig(c) { recsCfg = c; } }; // テスト用フック

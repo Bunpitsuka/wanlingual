@@ -5,6 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>ワンリンガル</title>
 <meta name="description" content="犬の鳴き声から気持ちを推測して、正解を教えると「うちの子専用」に育つアプリ。本物の翻訳ではなく、吠え方の特徴からの推測です。">
+<link rel="canonical" href="https://bunpitsuka.github.io/wanlingual/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="ワンリンガル — 犬の鳴き声から気持ちを推測して育てる">
+<meta property="og:description" content="マイクで吠えを拾って6つの気持ちに推測。正解を教えるほど「うちの子専用」に育つ。無料・登録不要・音声は端末の外に出しません。">
+<meta property="og:url" content="https://bunpitsuka.github.io/wanlingual/">
+<meta property="og:image" content="https://bunpitsuka.github.io/wanlingual/icons/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:locale" content="ja_JP">
+<meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#c9d6a3" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#1b1916" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -52,7 +62,14 @@
     <canvas id="wave" width="800" height="140" aria-label="波形と検出した吠え"></canvas>
     <div class="pred"><span class="big" id="predBig">── ──</span><span class="conf" id="predConf"></span></div>
     <p class="quote" id="quote"></p>
-    <button class="mini" id="speak" type="button">セリフを読み上げ</button>
+    <div class="minis">
+      <button class="mini" id="speak" type="button">セリフを読み上げ</button>
+      <button class="mini" id="share" type="button">結果をシェア</button>
+    </div>
+    <div class="sharebox" id="sharebox" hidden>
+      <img id="shareImg" alt="シェア用の画像">
+      <p class="note" id="shareNote"></p>
+    </div>
     <div class="bars" id="bars"></div>
     <div class="feat" id="feat"></div>
   </section>
@@ -60,6 +77,12 @@
   <section class="panel answer" id="answer">
     <p>本当の気持ちは？（あなたの答えで育ちます）</p>
     <div class="choices" id="choices"></div>
+  </section>
+
+  <section class="panel recs" id="recs" hidden>
+    <h2 id="recsTitle">この気持ちのときに</h2>
+    <ul class="reclist" id="recList"></ul>
+    <p class="note" id="recsNote"></p>
   </section>
 
   <section class="panel">

@@ -110,7 +110,7 @@ test('オフラインでも起動する（Service Worker）', async ({ page, con
   await page.evaluate(() => navigator.serviceWorker.ready);
   // 事前キャッシュが終わるまで待つ
   await page.waitForFunction(async () => {
-    const c = await caches.open('wl-v1'); const keys = await c.keys();
+    const c = await caches.open('wl-v2'); const keys = await c.keys();
     return keys.some(r => r.url.endsWith('/js/mic.js'));
   }, null, { timeout: 15000 });
   await context.setOffline(true);
@@ -130,4 +130,35 @@ test('画面を見た感じ（スクリーンショット）', async ({ page }, 
   // 横スクロールが出ていない
   const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(over).toBeLessThanOrEqual(0);
+});
+
+test('おすすめ: ID 未設定なら出ない、設定すればアフィリエイトリンクが出る', async ({ page }) => {
+  await page.locator('#file').setInputFiles(fx('bark4.wav'));
+  await expect(page.locator('#answer')).toHaveClass(/on/, { timeout: 15000 });
+  await page.locator('#choices button[data-k="lonely"]').click();
+  await expect(page.locator('#recs')).toBeHidden();
+
+  await page.evaluate(() => window.__wl.setRecsConfig({ amazonTag: 'test-22', rakutenId: '' }));
+  await page.locator('#file').setInputFiles(fx('bark4.wav'));
+  await expect(page.locator('#answer')).toHaveClass(/on/, { timeout: 15000 });
+  await page.locator('#choices button[data-k="lonely"]').click();
+  await expect(page.locator('#recs')).toBeVisible();
+  await expect(page.locator('#recsTitle')).toContainText('さみしい');
+  const a = page.locator('#recList a').first();
+  await expect(a).toHaveText('Amazonで探す');
+  await expect(a).toHaveAttribute('href', /tag=test-22/);
+  await expect(a).toHaveAttribute('rel', /sponsored/);
+  await expect(page.locator('#recsNote')).toContainText('アソシエイト');
+});
+
+test('結果をシェア: 画像カードができる（共有シートが無い環境は画像表示にフォールバック）', async ({ page }) => {
+  await page.locator('#file').setInputFiles(fx('bark4.wav'));
+  await expect(page.locator('#answer')).toHaveClass(/on/, { timeout: 15000 });
+  await page.evaluate(() => { try { delete navigator.share; } catch {} Object.defineProperty(navigator, 'share', { value: undefined, configurable: true }); });
+  await page.locator('#share').click();
+  await expect(page.locator('#sharebox')).toBeVisible({ timeout: 10000 });
+  const src = await page.locator('#shareImg').getAttribute('src');
+  expect(src.startsWith('data:image/png;base64,')).toBeTruthy();
+  expect(src.length).toBeGreaterThan(20000);
+  await expect(page.locator('#shareNote')).toContainText('Threads');
 });
