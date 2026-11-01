@@ -16,14 +16,14 @@
 ## B. 手動アップロード（GitHub を Claude につながない場合）
 
 1. GitHub のリポジトリページで「Add file → Upload files」。
-2. `yoruno/wanlingual/` の中身（`app/ tests/ docs/ .github/ package.json .gitignore README.md`）をドラッグ＆ドロップ → Commit。
+2. `wanlingual/` フォルダの中身（`app/ tests/ docs/ .github/ package.json .gitignore README.md`）をドラッグ＆ドロップ → Commit。
    - `.github` は隠しフォルダなのでエクスプローラーで「隠しファイルを表示」にする。
 3. Settings → Pages → Source を GitHub Actions に。数分で `https://<ユーザー名>.github.io/wanlingual/` が開きます。
 
 ## C. 公開前に PC で試す（今日できる）
 
 ```
-cd C:\Users\yokoy\OneDrive\デスクトップ\yoruno-v2\yoruno\wanlingual
+cd（wanlingual フォルダ）
 npm run serve
 ```
 Chrome で http://localhost:4173 を開く → 「マイクで監視を始める」→ 許可。
