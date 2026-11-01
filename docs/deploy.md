@@ -1,5 +1,7 @@
 # 公開（デプロイ）と動作確認の手順
 
+**現在の公開URL: https://bunpitsuka.github.io/wanlingual/** （リポジトリ Bunpitsuka/wanlingual、main に push すると自動更新。A の手順は 2026-11-01 に完了済み）
+
 マイクはブラウザの決まりで **https か localhost でしか使えません**。スマホで試すには https の公開URLが必要です。
 一番簡単で無料なのが GitHub Pages。ただし GitHub のアカウント操作は社長の担当（指示書 §6）。
 

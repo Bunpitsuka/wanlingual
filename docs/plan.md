@@ -12,7 +12,7 @@
 | 4 | ホーム画面追加（manifest）＋オフライン（service worker） | 完了 | 2回目以降はオフラインで起動・判定できる |
 | 5 | 単体テスト（特徴量抽出・判定・育成度） | 完了 | `npm run test:unit` 6本 |
 | 6 | E2E（Playwright、Android Chrome / iPhone 相当のエミュレーション） | 完了 | `npm run test:e2e` 8本×2端末。偽マイクで吠え声→自動判定も通る |
-| 7 | GitHub Pages へ自動デプロイ | **社長待ち** | `docs/deploy.md`。GitHub のリポジトリ作成が必要（§6: 外部アカウント操作） |
+| 7 | GitHub Pages へ自動デプロイ | 完了 | https://bunpitsuka.github.io/wanlingual/ （main に push で自動更新） |
 | 8 | 実機で本物の犬で確認 | 未 | 社長の手元に犬がいるときに。PCなら YouTube の犬動画でも試せる（`docs/deploy.md` 参照） |
 
 ## 設計のポイント
@@ -25,6 +25,6 @@
 
 ## 次（フェーズ1の残り → フェーズ2へ）
 
-1. 社長が GitHub のリポジトリを作る → 自動デプロイ → URL をスマホで開いて実機確認。
+1. 社長のスマホで実機確認。
 2. 実際の犬の録音 20件で的中率を測り `docs/accuracy.md` に記録。これがフェーズ2の出発点。
 3. フェーズ2: YAMNet による犬以外の音の除外、MFCC 追加。
