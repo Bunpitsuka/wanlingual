@@ -34,15 +34,23 @@ export function pitch(seg, sr) {
   for (let i = 0; i < N; i++) e += seg[i] * seg[i];
   if (e < 1e-6) return 0;
   const minL = Math.floor(sr / 1400), maxL = Math.floor(sr / 90);
+  const ac = new Float32Array(maxL + 2);
   let best = 0, bl = 0;
-  for (let L = minL; L <= maxL; L++) {
+  for (let L = minL; L <= maxL + 1; L++) {
     let s = 0;
     for (let i = 0; i < N - L; i++) s += seg[i] * seg[i + L];
-    s /= e;
-    if (s > best) { best = s; bl = L; }
+    ac[L] = s / e * N / (N - L); // 重なる長さで正規化（しないと短いラグ＝高い声に偏る）
   }
-  return best > 0.3 ? sr / bl : 0;
+  for (let L = minL; L <= maxL; L++) if (ac[L] > best) { best = ac[L]; bl = L; }
+  if (best <= 0.3) return 0;
+  // 放物線補間でラグを小数まで詰める（整数ラグだけだと高い声ほど粗くなる: 44.1kHz で 620Hz 付近は 1 ラグ ≒ 9Hz）
+  const a = ac[bl - 1] ?? best, b = best, c = ac[bl + 1] ?? best;
+  const den = a - 2 * b + c;
+  const delta = den !== 0 ? 0.5 * (a - c) / den : 0;
+  return sr / (bl + Math.max(-0.5, Math.min(0.5, delta)));
 }
+
+const median = a => { if (!a.length) return 0; const s = Array.from(a).sort((p, q) => p - q); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 
 /** スペクトル重心（Hz）。音色の明るさ */
 export function centroid(seg, sr) {
@@ -94,9 +102,20 @@ export function analyzeSamples(x, sr, opts = {}) {
   const events = merged.filter(e => e.e - e.s >= minF).map(e => {
     let pf = e.s;
     for (let f = e.s; f < e.e; f++) if (rms[f] > rms[pf]) pf = f;
-    const o = Math.max(0, Math.min(pf * hop, n - 2048));
-    const seg = x.subarray(o, o + 2048);
-    return { start: e.s * hop / sr, dur: (e.e - e.s) * hop / sr, f0: pitch(seg, sr), cent: centroid(seg, sr), level: rms[pf] };
+    // ピッチと明るさは、ピーク1か所ではなく、イベント内の十分大きい数か所（最大5）の中央値にする（1か所だと立ち上がりや息で外れやすい）
+    const win = 2048, lim = rms[pf] * 0.5;
+    const picks = [];
+    const step = Math.max(1, Math.floor((e.e - e.s) / 5));
+    for (let f = e.s; f < e.e; f += step) if (rms[f] >= lim) picks.push(f);
+    if (!picks.includes(pf)) picks.push(pf);
+    const f0s = [], cents = [];
+    for (const f of picks.slice(0, 6)) {
+      const o = Math.max(0, Math.min(f * hop - win / 4, n - win));
+      const seg = x.subarray(o, o + win);
+      const p = pitch(seg, sr); if (p > 0) f0s.push(p);
+      cents.push(centroid(seg, sr));
+    }
+    return { start: e.s * hop / sr, dur: (e.e - e.s) * hop / sr, f0: median(f0s), cent: median(cents), level: rms[pf] };
   });
   const gaps = events.slice(1).map((e, i) => e.start - (events[i].start + events[i].dur));
   const f0s = events.map(e => e.f0).filter(v => v > 0);

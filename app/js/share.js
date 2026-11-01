@@ -1,4 +1,5 @@
 // share.js — 判定結果を画像カードにして共有する。ユーザー自身が投稿する（アプリは投稿しない）。
+import { MASCOTS } from './mascot.js';
 export const APP_URL = 'https://bunpitsuka.github.io/wanlingual/';
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -9,6 +10,12 @@ function wrap(ctx, text, maxW) {
   const lines = []; let cur = '';
   for (const ch of text) { if (ctx.measureText(cur + ch).width > maxW && cur) { lines.push(cur); cur = ch; } else cur += ch; }
   if (cur) lines.push(cur); return lines;
+}
+/** 育成段階のドット絵を描く（1 ドット = px） */
+function mascot(ctx, x0, y0, px, stageIndex, color) {
+  const m = MASCOTS[Math.max(0, Math.min(MASCOTS.length - 1, stageIndex | 0))];
+  ctx.fillStyle = color;
+  m.art.forEach((row, y) => { for (let x = 0; x < row.length; x++) if (row[x] === '#') ctx.fillRect(x0 + x * px, y0 + y * px, px, px); });
 }
 function paw(ctx, cx, cy, s, color) {
   ctx.fillStyle = color;
@@ -32,9 +39,10 @@ export function renderCard(r) {
   let y = 450; for (const line of wrap(ctx, `「${r.quote}」`, W - 260).slice(0, 4)) { ctx.fillText(line, 124, y); y += 62; }
   ctx.font = `400 32px ${body}`; ctx.fillStyle = '#3f4a2c';
   const feat = [r.n ? `吠え ${r.n}回` : '', r.dur ? `長さ ${Math.round(r.dur * 1000)}ms` : '', r.f0 ? `ピッチ ${Math.round(r.f0)}Hz` : ''].filter(Boolean).join('　');
-  if (feat) ctx.fillText(feat, 124, 740);
-  ctx.fillText(`育成 LV.${r.lv}　${r.stage}`, 124, 790);
-  paw(ctx, 900, 200, 110, '#1f2a12');
+  const fy = Math.max(y + 40, 640); // セリフの直後に寄せる（短いセリフで間延びしない）
+  if (feat) ctx.fillText(feat, 124, fy);
+  ctx.fillText(`育成 LV.${r.lv}　${r.stage}`, 124, fy + 50);
+  if (r.stageIndex != null) mascot(ctx, 780, 120, 18, r.stageIndex, '#1f2a12'); else paw(ctx, 900, 200, 110, '#1f2a12');
   ctx.fillStyle = '#1f2a12'; ctx.font = `700 40px ${disp}`; ctx.fillText('ワンリンガル', 120, 868);
   ctx.font = `400 30px ${body}`; ctx.fillStyle = '#3f4a2c'; ctx.fillText('犬の鳴き声から気持ちを推測して、教えるほど育つ', 120, 918);
   ctx.fillText(APP_URL.replace('https://', ''), 120, 956);

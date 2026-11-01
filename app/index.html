@@ -41,7 +41,7 @@
   </header>
 
   <section class="growth" aria-live="polite">
-    <div><div class="lv" id="lvLabel">LV.0</div><div class="stage" id="stage">たまご</div></div>
+    <div class="who"><span class="mascot" id="mascot"></span><div><div class="lv" id="lvLabel">LV.0</div><div class="stage" id="stage">たまご</div></div></div>
     <div class="acc"><span id="accN">直近20回</span>の的中率<b id="acc">—</b></div>
     <div class="track"><i id="track"></i></div>
     <div class="next" id="next">正解を教えると育ちます。まず1回。</div>
@@ -53,12 +53,18 @@
     <div class="status micstate" id="micState"></div>
     <input type="file" id="file" accept="audio/*">
     <button class="btn" id="pick" type="button">録音ファイルを読み込む</button>
+    <button class="btn install" id="installBtn" type="button" hidden>ホーム画面に追加</button>
     <p class="hint" id="platformNote"></p>
     <div class="status" id="status" aria-live="polite"></div>
   </section>
 
   <section class="panel result idle" id="result">
     <h2>判定</h2>
+    <ol class="guide" id="guide">
+      <li><b>マイクで監視を始める</b><span>ブラウザがマイクの許可を聞いてきたら「許可」。</span></li>
+      <li><b>吠えたら約1秒で判定</b><span>スマホを犬から 1〜3m のところに。テレビや人の声は切って。</span></li>
+      <li><b>本当の気持ちをタップ</b><span>最初は外れて当たり前（6択の当てずっぽうは 17%）。教えるほど「うちの子専用」に育ちます。</span></li>
+    </ol>
     <canvas id="wave" width="800" height="140" aria-label="波形と検出した吠え"></canvas>
     <div class="pred"><span class="big" id="predBig">── ──</span><span class="conf" id="predConf"></span></div>
     <p class="quote" id="quote"></p>

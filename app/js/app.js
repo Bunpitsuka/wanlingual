@@ -5,6 +5,7 @@ import { loadSamples, saveSamples, loadDogName, saveDogName, loadOwnerName, save
 import { Listener, platformNotes } from './mic.js';
 import { share } from './share.js';
 import { loadConfig as loadRecsConfig, links as recLinks, DISCLOSURE } from './recs.js';
+import { mascotSvg } from './mascot.js';
 
 const $ = id => document.getElementById(id);
 let samples = loadSamples();
@@ -13,12 +14,22 @@ let last = null;           // 直近の判定（シェア用）{f, pred, conf, q
 let recsCfg = null;        // affiliate.json（無ければ null）
 let listener = null;
 let lastMicAt = 0;
+let lastStageIndex = -1;
+let micStartedAt = 0, micBarks = 0, micTimer = null;
+let installEvt = null;     // Android Chrome の beforeinstallprompt
 
 // ---------- 育成メーター ----------
 function renderGrowth() {
   const g = growth(samples);
   $('lvLabel').textContent = 'LV.' + g.n;
   $('stage').textContent = g.stage;
+  const m = $('mascot');
+  if (g.stageIndex !== lastStageIndex) {
+    m.innerHTML = mascotSvg(g.stageIndex);
+    if (lastStageIndex >= 0) toast(`「${g.stage}」に育ちました！`);
+    lastStageIndex = g.stageIndex;
+  }
+  m.classList.remove('pop'); void m.offsetWidth; m.classList.add('pop');
   $('track').style.width = Math.round(g.progress * 100) + '%';
   $('next').textContent = g.nextStage ? `次の「${g.nextStage}」まであと ${g.toNext} 回` : '最大まで育ちました';
   $('acc').textContent = g.accuracy == null ? '—' : Math.round(g.accuracy * 100) + '%';
@@ -73,6 +84,16 @@ function renderHist() {
 let toastT;
 function toast(m) { const t = $('toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 2400); }
 
+/** 1位と2位の差で「自信」を3段階に。6択の推測なので % だけだと低く見えるため */
+function confidenceLevel(s, k) {
+  const sorted = Object.values(s).sort((a, b) => b - a);
+  const margin = (sorted[0] || 0) - (sorted[1] || 0);
+  const n = samples.length;
+  if (margin >= 0.15 || (n >= 15 && margin >= 0.08)) return { label: '高め', cls: 'hi' };
+  if (margin >= 0.05) return { label: 'まあまあ', cls: 'mid' };
+  return { label: '低め', cls: 'lo' };
+}
+
 // ---------- 判定の表示（ファイル／マイク共通） ----------
 function showResult(a, source) {
   draw(a); renderFeat(a.feats);
@@ -83,14 +104,15 @@ function showResult(a, source) {
   const s = predict(a.feats, samples); renderBars(s); const c = top(s);
   const dog = $('dogName').value.trim() || 'モカ', owner = $('ownerName').value.trim() || '飼い主';
   $('predBig').textContent = c.label;
-  $('predConf').textContent = `たぶん ${Math.round(s[c.k] * 100)}%（推測です）`;
+  const lvl = confidenceLevel(s, c.k);
+  $('predConf').innerHTML = `たぶん ${Math.round(s[c.k] * 100)}%（推測です）<span class="lvl ${lvl.cls}">自信 ${lvl.label}</span>`;
   $('quote').textContent = c.line(dog, owner);
   current = { f: a.feats, pred: c.k, source };
   last = { f: a.feats, pred: c.k, conf: s[c.k], quote: c.line(dog, owner) };
   $('sharebox').hidden = true; $('recs').hidden = true;
   renderChoices(c.k); $('answer').classList.add('on');
   $('result').classList.remove('idle');
-  if (source === 'mic') { try { navigator.vibrate?.(80); } catch {} }
+  if (source === 'mic') { micBarks++; renderMicState(); try { navigator.vibrate?.(80); } catch {} }
   $('answer').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   return true;
 }
@@ -109,9 +131,10 @@ async function runFile(file) {
 function label(k) {
   if (!current) return;
   samples.push({ t: Date.now(), label: k, pred: current.pred, f: current.f, src: current.source });
-  saveSamples(samples); renderGrowth(); renderHist();
+  saveSamples(samples);
   $('answer').classList.remove('on');
   toast(current.pred === k ? '的中！この特徴を覚えました' : `なるほど。この声は「${CAT[k].label}」と覚えました`);
+  renderGrowth(); renderHist(); // 段階が上がったときはこちらのトーストが勝つ
   current = null;
   renderRecs(k);
 }
@@ -134,12 +157,20 @@ function renderRecs(k) {
 }
 
 // ---------- マイク監視 ----------
+function renderMicState() {
+  if (!listener?.running) { $('micState').textContent = ''; return; }
+  const sec = Math.floor((Date.now() - micStartedAt) / 1000);
+  const t = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+  $('micState').textContent = micBarks ? `監視中 ${t}・吠え ${micBarks}回` : `監視中 ${t}… 吠えたら自動で判定します`;
+}
 function setMicUI(on) {
   $('micBtn').textContent = on ? '監視をやめる' : '🎤 マイクで監視を始める';
   $('micBtn').classList.toggle('primary', !on);
-  $('micState').textContent = on ? '監視中… 吠えたら自動で判定します' : '';
   $('meter').classList.toggle('on', on);
   document.body.classList.toggle('listening', on);
+  clearInterval(micTimer); micTimer = null;
+  if (on) { micStartedAt = Date.now(); micBarks = 0; micTimer = setInterval(renderMicState, 1000); }
+  renderMicState();
 }
 async function toggleMic() {
   if (listener?.running) { await listener.stop(); listener = null; setMicUI(false); return; }
@@ -172,14 +203,23 @@ async function toggleMic() {
 // 画面が隠れたら監視を止める（iOS はバックグラウンド録音ができない）
 document.addEventListener('visibilitychange', () => { if (document.hidden && listener?.running) { listener.stop(); listener = null; setMicUI(false); toast('画面が隠れたので監視を止めました'); } });
 
-// ---------- 注意書き ----------
+// ---------- 注意書き・ホーム画面に追加 ----------
 function renderNotes() {
   const p = platformNotes();
   const el = $('platformNote');
   if (!p.mic) el.textContent = 'このブラウザはマイクに対応していません。録音ファイルの読み込みは使えます。';
-  else if (p.ios) el.textContent = 'iPhoneは画面を点けてアプリを前面にしている間だけ監視できます（バックグラウンド録音はできません）。' + (p.standalone ? '' : ' 共有メニューから「ホーム画面に追加」すると全画面で使えます。');
-  else el.textContent = '監視中は画面を消さないでください。' + (p.standalone ? '' : ' ブラウザのメニューから「ホーム画面に追加」できます。');
+  else if (p.ios) el.textContent = 'iPhoneは画面を点けてアプリを前面にしている間だけ監視できます（バックグラウンド録音はできません）。' + (p.standalone ? '' : ' Safari の共有ボタン → 「ホーム画面に追加」で全画面・オフラインで使えます。');
+  else el.textContent = '監視中は画面を消さないでください。' + (p.standalone || installEvt ? '' : ' ブラウザのメニューから「ホーム画面に追加」できます。');
 }
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault(); installEvt = e; $('installBtn').hidden = false; renderNotes();
+});
+window.addEventListener('appinstalled', () => { installEvt = null; $('installBtn').hidden = true; toast('ホーム画面に追加しました'); renderNotes(); });
+$('installBtn').addEventListener('click', async () => {
+  if (!installEvt) return;
+  try { installEvt.prompt(); await installEvt.userChoice; } catch {}
+  installEvt = null; $('installBtn').hidden = true; renderNotes();
+});
 
 // ---------- 配線 ----------
 $('pick').addEventListener('click', () => $('file').click());
@@ -195,7 +235,7 @@ $('speak').addEventListener('click', () => {
 $('share').addEventListener('click', async () => {
   if (!last) return;
   const g = growth(samples); const c = CAT[last.pred];
-  const r = { dog: $('dogName').value.trim() || 'モカ', label: c.label, conf: last.conf, quote: last.quote, lv: g.n, stage: g.stage, n: last.f.n, dur: last.f.dur, f0: last.f.f0 };
+  const r = { dog: $('dogName').value.trim() || 'モカ', label: c.label, conf: last.conf, quote: last.quote, lv: g.n, stage: g.stage, stageIndex: g.stageIndex, n: last.f.n, dur: last.f.dur, f0: last.f.f0 };
   const how = await share(r, {
     onFallback: (dataUrl, text, copied) => {
       $('shareImg').src = dataUrl; $('sharebox').hidden = false;

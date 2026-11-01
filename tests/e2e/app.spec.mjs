@@ -20,6 +20,11 @@ test('初期表示: たまご LV.0、判定は空', async ({ page }) => {
   await expect(page.locator('#stage')).toHaveText('たまご');
   await expect(page.locator('#predBig')).toHaveText('── ──');
   await expect(page.locator('#answer')).not.toHaveClass(/on/);
+  // はじめての人向けの 3 ステップ案内が出て、判定前の空の棒グラフは出ない
+  await expect(page.locator('#guide')).toBeVisible();
+  await expect(page.locator('#guide li')).toHaveCount(3);
+  await expect(page.locator('#bars')).toBeHidden();
+  await expect(page.locator('#mascot svg')).toHaveAttribute('aria-label', 'たまご');
 });
 
 test('録音ファイル → 判定 → 正解を教える → LV.1 → 再読み込みしても残る', async ({ page }, testInfo) => {
@@ -27,6 +32,8 @@ test('録音ファイル → 判定 → 正解を教える → LV.1 → 再読�
   await expect(page.locator('#predBig')).not.toHaveText('── ──', { timeout: 15000 });
   await expect(page.locator('#predBig')).not.toHaveText('？');
   await expect(page.locator('#predConf')).toContainText('推測');
+  await expect(page.locator('#predConf .lvl')).toContainText('自信');
+  await expect(page.locator('#guide')).toBeHidden();
   await expect(page.locator('#feat')).toContainText('吠え 4回');
   await expect(page.locator('#answer')).toHaveClass(/on/);
   await expect(page.locator('#choices button[data-k]')).toHaveCount(6);
@@ -66,6 +73,8 @@ test('5回教えると「子犬」になる', async ({ page }) => {
   }
   await expect(page.locator('#lvLabel')).toHaveText('LV.5');
   await expect(page.locator('#stage')).toHaveText('子犬');
+  await expect(page.locator('#mascot svg')).toHaveAttribute('aria-label', '子犬');
+  await expect(page.locator('#toast')).toContainText('子犬');
   await expect(page.locator('#acc')).toHaveText(/\d+%/);
 });
 
@@ -93,11 +102,13 @@ test('マイク監視: 偽マイクの吠え声を自動で判定する', async 
   test.skip(browserName !== 'chromium', '偽マイクは Chromium のみ');
   await page.locator('#micBtn').click();
   await expect(page.locator('#micState')).toContainText('監視中', { timeout: 10000 });
+  await expect(page.locator('#micState')).toContainText(/\d:\d\d/);
   await expect(page.locator('body')).toHaveClass(/listening/);
   await expect(page.locator('#micBtn')).toHaveText('監視をやめる');
   // mic10s.wav には 2 つの吠えクラスタが入っている（ループ再生される）
   await expect(page.locator('#predBig')).not.toHaveText('── ──', { timeout: 25000 });
   await expect(page.locator('#answer')).toHaveClass(/on/);
+  await expect(page.locator('#micState')).toContainText('吠え 1回');
   await page.screenshot({ path: path.join(shots, `${testInfo.project.name}-mic.png`), fullPage: true });
   await page.locator('#choices button[data-k="alarm"]').click();
   await expect(page.locator('#hist li').first()).toContainText('🎤');
@@ -108,11 +119,13 @@ test('マイク監視: 偽マイクの吠え声を自動で判定する', async 
 
 test('オフラインでも起動する（Service Worker）', async ({ page, context }) => {
   await page.evaluate(() => navigator.serviceWorker.ready);
-  // 事前キャッシュが終わるまで待つ
-  await page.waitForFunction(async () => {
-    const c = await caches.open('wl-v2'); const keys = await c.keys();
-    return keys.some(r => r.url.endsWith('/js/mic.js'));
-  }, null, { timeout: 15000 });
+  // 事前キャッシュが終わるまで待つ（キャッシュ名は sw.js の VERSION から読む）
+  const version = (await (await page.request.get('./sw.js')).text()).match(/VERSION = '([^']+)'/)[1];
+  await page.waitForFunction(async v => {
+    if (!(await caches.has(v))) return false;
+    const c = await caches.open(v); const keys = await c.keys();
+    return keys.some(r => r.url.endsWith('/js/mic.js')) && keys.some(r => r.url.endsWith('/js/mascot.js'));
+  }, version, { timeout: 15000 });
   await context.setOffline(true);
   try {
     await page.reload();
