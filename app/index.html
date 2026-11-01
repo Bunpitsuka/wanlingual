@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ワンリンガル</title>
+<meta name="description" content="犬の鳴き声から気持ちを推測して、正解を教えると「うちの子専用」に育つアプリ。本物の翻訳ではなく、吠え方の特徴からの推測です。">
+<meta name="theme-color" content="#c9d6a3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1b1916" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ワンリンガル">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="./css/app.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>ワンリンガル</h1>
+      <p class="tagline">鳴き声から気持ちを<strong>推測</strong>して、教えるほど「うちの子」に育つ。</p>
+    </div>
+    <div class="names">
+      <label>犬<input type="text" id="dogName" value="モカ" maxlength="10" autocomplete="off"></label>
+      <label>呼び方<input type="text" id="ownerName" value="飼い主" maxlength="10" autocomplete="off"></label>
+    </div>
+  </header>
+
+  <section class="growth" aria-live="polite">
+    <div><div class="lv" id="lvLabel">LV.0</div><div class="stage" id="stage">たまご</div></div>
+    <div class="acc"><span id="accN">直近20回</span>の的中率<b id="acc">—</b></div>
+    <div class="track"><i id="track"></i></div>
+    <div class="next" id="next">正解を教えると育ちます。まず1回。</div>
+  </section>
+
+  <section class="actions">
+    <button class="btn primary" id="micBtn" type="button">🎤 マイクで監視を始める</button>
+    <div class="meter" id="meter" aria-hidden="true"><i id="meterBar"></i></div>
+    <div class="status micstate" id="micState"></div>
+    <input type="file" id="file" accept="audio/*">
+    <button class="btn" id="pick" type="button">録音ファイルを読み込む</button>
+    <p class="hint" id="platformNote"></p>
+    <div class="status" id="status" aria-live="polite"></div>
+  </section>
+
+  <section class="panel result idle" id="result">
+    <h2>判定</h2>
+    <canvas id="wave" width="800" height="140" aria-label="波形と検出した吠え"></canvas>
+    <div class="pred"><span class="big" id="predBig">── ──</span><span class="conf" id="predConf"></span></div>
+    <p class="quote" id="quote"></p>
+    <button class="mini" id="speak" type="button">セリフを読み上げ</button>
+    <div class="bars" id="bars"></div>
+    <div class="feat" id="feat"></div>
+  </section>
+
+  <section class="panel answer" id="answer">
+    <p>本当の気持ちは？（あなたの答えで育ちます）</p>
+    <div class="choices" id="choices"></div>
+  </section>
+
+  <section class="panel">
+    <h2>育成ログ</h2>
+    <ul class="hist" id="hist"><li><span>まだ記録がありません</span></li></ul>
+    <div class="tools">
+      <button type="button" id="export">学習データをコピー</button>
+      <button type="button" id="import">読み込む</button>
+      <button type="button" id="reset">リセット</button>
+    </div>
+    <textarea id="ioText" class="io" hidden rows="4" spellcheck="false"></textarea>
+    <p class="note">学習データ（特徴量と正解だけ）はこの端末に保存されます。音声そのものは保存も送信もしません。判定ルールは動物行動学の知見（Pongrácz ら 2005 など）を単純化したもので、本物の翻訳ではありません。</p>
+  </section>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>

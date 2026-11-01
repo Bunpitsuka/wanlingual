@@ -1,0 +1,16 @@
+{
+  "name": "wanlingual",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "犬の鳴き声から気持ちを推測して育てるPWA（フェーズ1）",
+  "scripts": {
+    "serve": "python3 -m http.server 4173 --directory app",
+    "test:unit": "node --test tests/unit/*.test.mjs",
+    "test:e2e": "playwright test -c tests/e2e/playwright.config.mjs",
+    "test": "npm run test:unit && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.0"
+  }
+}
