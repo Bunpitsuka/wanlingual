@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ワンリンガル 実験室 — 犬の声かどうか（YAMNet）</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#c9d6a3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1b1916" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="../css/app.css">
+<style>
+  .lab h1 small{display:block;font-family:var(--body);font-size:.8rem;color:var(--muted);letter-spacing:0;margin-top:4px}
+  .verdict{font-family:var(--display);font-size:1.9rem;line-height:1.1;margin:6px 0 2px}
+  .score{color:var(--muted);font-size:.85rem;font-variant-numeric:tabular-nums}
+  ol.top{margin:8px 0 0;padding-left:1.4em;font-size:.9rem}
+  ol.top li{display:flex;justify-content:space-between;gap:8px;border-bottom:1px dashed var(--line);padding:3px 0}
+  ol.top li span:last-child{font-variant-numeric:tabular-nums;color:var(--muted)}
+  .back{font-size:.85rem}
+</style>
+</head>
+<body>
+<div class="wrap lab">
+  <header>
+    <h1>実験室: 犬の声かどうか<small>フェーズ2の試作。本体アプリとは別に動きます。結果は保存も送信もしません。</small></h1>
+    <p class="tagline">Google の音分類モデル <strong>YAMNet</strong>（521 種類の音を知っている）に音を聞かせて、「犬の声」か「それ以外（人の声・テレビ・物音）」かを見分けられるか試します。これがうまく行けば、本体アプリの誤検出を減らせます。</p>
+  </header>
+
+  <section class="actions">
+    <div class="status" id="status" aria-live="polite">準備中…</div>
+    <button class="btn primary" id="micBtn" type="button" disabled>🎤 3秒録って判定</button>
+    <input type="file" id="file" accept="audio/*">
+    <button class="btn" id="pick" type="button" disabled>録音ファイルを読み込む</button>
+    <p class="hint">初回はモデル（約 15MB）をダウンロードします。Wi-Fi 推奨。音声はブラウザの中だけで処理します。</p>
+  </section>
+
+  <section class="panel" id="result" hidden>
+    <h2>結果</h2>
+    <div class="verdict" id="verdict">──</div>
+    <div class="score" id="score"></div>
+    <ol class="top" id="top"></ol>
+    <p class="note" id="note"></p>
+  </section>
+
+  <section class="panel">
+    <h2>これは何？</h2>
+    <p class="note">本体アプリは「音の大きさ」で吠えを見つけているので、人の声や物音も拾うことがあります。YAMNet は 0.48 秒ごとに「犬・吠え・遠吠え・うなり・くんくん」などのスコアを出すので、これを前段に置けば犬以外の音を捨てられます。しきい値（いまは 0.3 以上で「犬の声」）は本物の犬と生活音で測ってから決めます。</p>
+    <p class="back"><a href="../">← 本体アプリへ戻る</a></p>
+  </section>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<!-- TensorFlow.js は CDN の固定バージョン（RULES.md: ライブラリは CDN から固定バージョン） -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js" crossorigin="anonymous"></script>
+<script type="module">
+import { TFJS_VERSION, YAMNET_SR, loadYamnet, classify, resampleTo16k } from './yamnet.js';
+const $ = id => document.getElementById(id);
+const lab = window.__lab = { ready: false, tf: null, model: null, last: null, error: null };
+let toastT;
+function toast(m) { const t = $('toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 2400); }
+function setStatus(m) { $('status').textContent = m; }
+
+function show(r, src) {
+  $('result').hidden = false;
+  $('verdict').textContent = r.label;
+  $('score').textContent = `犬らしさ ${(r.dog * 100).toFixed(0)}%（平均 ${(r.dogMean * 100).toFixed(0)}%）・${r.frames} フレーム・${r.ms} ms・${src}`;
+  const ol = $('top'); ol.innerHTML = '';
+  for (const t of r.top) { const li = document.createElement('li'); li.innerHTML = `<span>${t.name}</span><span>${(t.score * 100).toFixed(1)}%</span>`; ol.appendChild(li); }
+  $('note').textContent = r.isDog ? '本体アプリならこのまま気持ちの判定に回します。' : r.label === '判断つかず' ? 'しきい値のあいだ。本物の犬で測って決めます。' : '本体アプリならこの音は捨てます（気持ちの判定に回しません）。';
+  lab.last = r;
+}
+
+async function decodeToMono16k(arrayBuffer) {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const ac = new AC();
+  try {
+    const buf = await new Promise((ok, ng) => ac.decodeAudioData(arrayBuffer, ok, ng));
+    const n = buf.length, x = new Float32Array(n);
+    for (let c = 0; c < buf.numberOfChannels; c++) { const d = buf.getChannelData(c); for (let i = 0; i < n; i++) x[i] += d[i] / buf.numberOfChannels; }
+    return { x16k: resampleTo16k(x, buf.sampleRate), seconds: buf.duration };
+  } finally { try { await ac.close(); } catch {} }
+}
+
+async function runOn(arrayBuffer, src) {
+  setStatus('解析中…');
+  try {
+    const { x16k, seconds } = await decodeToMono16k(arrayBuffer);
+    const r = await classify(window.tf, lab.model, x16k);
+    show(r, `${src} ${seconds.toFixed(1)}秒`);
+    setStatus('できました');
+  } catch (e) { lab.error = String(e?.message || e); setStatus('失敗: ' + lab.error); }
+}
+
+$('pick').addEventListener('click', () => $('file').click());
+$('file').addEventListener('change', async e => {
+  const f = e.target.files?.[0]; if (!f) return;
+  await runOn(await f.arrayBuffer(), 'ファイル');
+  e.target.value = '';
+});
+
+$('micBtn').addEventListener('click', async () => {
+  const btn = $('micBtn'); btn.disabled = true;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }, video: false });
+    const rec = new MediaRecorder(stream); const chunks = [];
+    rec.ondataavailable = ev => chunks.push(ev.data);
+    const done = new Promise(ok => rec.onstop = ok);
+    rec.start(); setStatus('録音中… 3秒');
+    await new Promise(ok => setTimeout(ok, 3000));
+    rec.stop(); await done; stream.getTracks().forEach(t => t.stop());
+    const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+    await runOn(await blob.arrayBuffer(), 'マイク');
+  } catch (e) { setStatus('マイクが使えません: ' + (e?.message || e)); }
+  finally { btn.disabled = false; }
+});
+
+(async () => {
+  const tf = window.tf;
+  if (!tf) { lab.error = 'tfjs-missing'; setStatus('TensorFlow.js が読み込めません（CDN に届かないか、オフライン）。電波のあるところで開き直してください。'); return; }
+  lab.tf = tf.version?.tfjs || '?';
+  setStatus(`TensorFlow.js ${lab.tf}（固定 ${TFJS_VERSION}）を読み込みました。モデルを読み込み中…`);
+  try {
+    lab.model = await loadYamnet(tf);
+    lab.ready = true;
+    setStatus(`準備OK（backend: ${tf.getBackend()}）。マイクで3秒録るか、ファイルを選んでください。`);
+    $('micBtn').disabled = !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined';
+    $('pick').disabled = false;
+  } catch (e) { lab.error = String(e?.message || e); setStatus(lab.error); }
+  // 自動テスト用: window.__lab.classifySamples(Float32Array, sampleRate)
+  lab.classifySamples = async (x, sr) => classify(tf, lab.model, resampleTo16k(x, sr));
+})();
+</script>
+</body>
+</html>

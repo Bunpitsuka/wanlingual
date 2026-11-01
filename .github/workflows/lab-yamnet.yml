@@ -1,0 +1,27 @@
+# フェーズ2試作の確認: GitHub のランナー（外に出られるネットワーク）で YAMNet を実際に読み込み、
+# fixtures の合成音を聞かせて「犬らしさ」を Summary に表で出す。公開には関係しない（deploy-pages とは別）。
+name: lab-yamnet
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['app/lab/**', 'tests/lab/**', '.github/workflows/lab-yamnet.yml']
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: node tests/lab/yamnet-check.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yamnet-result
+          path: tests/lab/out/
+          if-no-files-found: ignore

@@ -4,3 +4,4 @@ playwright-report/
 tests/e2e/screenshots/
 .DS_Store
 Thumbs.db
+tests/lab/out/
