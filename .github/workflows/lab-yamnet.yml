@@ -19,6 +19,8 @@ jobs:
         with: { node-version: 22 }
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+      - name: ffmpeg（CC0 の mp3 を WAV に変換するため）
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null
       - name: 検証データを取得（ESC-50 は GitHub raw、CC0 5 本は Hugging Face。届かなければ飛ばす）
         run: node tests/lab/fetch-data.mjs
       - name: 本体の吠え検出・ルールに本物の音を通す

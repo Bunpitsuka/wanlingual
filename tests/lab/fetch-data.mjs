@@ -64,7 +64,8 @@ function toWav(file) {
   const out = file.replace(/\.[^.]+$/, '.wav');
   if (fs.existsSync(out)) return;
   const r = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', file, '-ac', '1', '-sample_fmt', 's16', out], { stdio: 'inherit' });
-  if (r.status !== 0) console.warn('ffmpeg で変換できず:', path.basename(file));
+  if (r.error) console.warn('ffmpeg が無いので変換できず（apt-get install ffmpeg）:', path.basename(file), r.error.code);
+  else if (r.status !== 0) console.warn('ffmpeg で変換できず:', path.basename(file), 'exit', r.status);
 }
 
 export async function fetchAll() {
