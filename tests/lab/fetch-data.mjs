@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const DATA = path.join(here, 'data');
@@ -57,6 +58,15 @@ export function listData() {
   return out;
 }
 
+/** WAV 以外（mp3 等）は ffmpeg があれば 16bit モノラル WAV に変換して隣に置く（検証スクリプトは WAV だけ読む） */
+function toWav(file) {
+  if (/\.wav$/i.test(file)) return;
+  const out = file.replace(/\.[^.]+$/, '.wav');
+  if (fs.existsSync(out)) return;
+  const r = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', file, '-ac', '1', '-sample_fmt', 's16', out], { stdio: 'inherit' });
+  if (r.status !== 0) console.warn('ffmpeg で変換できず:', path.basename(file));
+}
+
 export async function fetchAll() {
   const csvFile = path.join(DATA, 'esc50/esc50.csv');
   await get(`${ESC_RAW}/meta/esc50.csv`, csvFile);
@@ -75,10 +85,11 @@ export async function fetchAll() {
   } catch (e) { console.warn('HF に届かない:', e.message); }
   let m = 0;
   for (const f of files) {
-    const ok = await get(`https://huggingface.co/datasets/${repo}/resolve/main/${f}`, path.join(DATA, 'cc0', path.basename(f)), { optional: true });
-    if (ok) m++;
+    const dst = path.join(DATA, 'cc0', path.basename(f));
+    const ok = await get(`https://huggingface.co/datasets/${repo}/resolve/main/${f}`, dst, { optional: true });
+    if (ok) { m++; toWav(dst); }
   }
-  console.log(`CC0 (HF): ${m}/${files.length} 本`);
+  console.log(`CC0 (HF): ${m}/${files.length} 本`, files.map(f => path.basename(f)).join(', '));
   const cc0Readme = path.join(DATA, 'cc0/README.md');
   if (files.length) await get(`https://huggingface.co/datasets/${repo}/resolve/main/README.md`, cc0Readme, { optional: true });
 }
