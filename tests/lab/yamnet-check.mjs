@@ -4,34 +4,23 @@
 //   node tests/lab/yamnet-check.mjs                 # 本番どおり CDN から読む
 //   TFJS_LOCAL=node_modules/@tensorflow/tfjs/dist/tf.min.js node tests/lab/yamnet-check.mjs   # CDN の代わりにローカルの tf.min.js
 //
+// fixtures（合成音）に加えて、tests/lab/data/ に本物の音（node tests/lab/fetch-data.mjs で取得: ESC-50 dog 40 本・犬以外 40 本・CC0 5 本）
+// があればそれも通し、犬らしさの分布と「しきい値をいくつにすると犬を何%拾い、犬以外を何%通すか」の表を出す。
+//
 // 出力: 標準出力に Markdown の表、$GITHUB_STEP_SUMMARY があればそこにも追記、tests/lab/out/yamnet-result.json に生データ。
 import { chromium } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readWav } from './wav.mjs';
+import { listData } from './fetch-data.mjs';
+import { thresholdReport } from './report.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
 const PORT = 4174;
 const FIXTURES = ['bark4.wav', 'howl.wav', 'mic10s.wav', 'silence.wav'];
-
-/** PCM16 モノラル WAV → { x: Float32Array, sr } */
-function readWav(file) {
-  const b = fs.readFileSync(file);
-  if (b.toString('ascii', 0, 4) !== 'RIFF') throw new Error('not RIFF: ' + file);
-  let off = 12, sr = 0, ch = 1, bits = 16, data = null;
-  while (off + 8 <= b.length) {
-    const id = b.toString('ascii', off, off + 4), size = b.readUInt32LE(off + 4);
-    if (id === 'fmt ') { ch = b.readUInt16LE(off + 10); sr = b.readUInt32LE(off + 12); bits = b.readUInt16LE(off + 22); }
-    if (id === 'data') { data = b.subarray(off + 8, off + 8 + size); break; }
-    off += 8 + size + (size & 1);
-  }
-  if (!data || bits !== 16) throw new Error('unsupported wav: ' + file);
-  const n = Math.floor(data.length / 2 / ch), x = new Float32Array(n);
-  for (let i = 0; i < n; i++) { let s = 0; for (let c = 0; c < ch; c++) s += data.readInt16LE((i * ch + c) * 2); x[i] = s / ch / 32768; }
-  return { x, sr };
-}
 
 const server = spawn('python3', ['-m', 'http.server', String(PORT), '--directory', 'app'], { cwd: root, stdio: 'ignore' });
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined });
@@ -51,13 +40,17 @@ try {
   console.log('tfjs:', lab.tf, '| ready:', lab.ready, '| status:', lab.status);
   if (!lab.ready) { summary = `YAMNet 読み込み失敗: ${lab.error}`; console.log(summary); process.exitCode = 2; }
   else {
-    for (const f of FIXTURES) {
-      const { x, sr } = readWav(path.join(root, 'tests/fixtures', f));
+    const inputs = [
+      ...FIXTURES.map(f => ({ file: f, path: path.join(root, 'tests/fixtures', f), category: '合成', source: 'fixtures' })),
+      ...listData(),
+    ];
+    for (const d of inputs) {
+      const { x, sr } = readWav(d.path);
       const r = await page.evaluate(([arr, sr]) => window.__lab.classifySamples(Float32Array.from(arr), sr), [Array.from(x), sr]);
-      rows.push({ file: f, seconds: +(x.length / sr).toFixed(2), ...r });
+      rows.push({ file: d.file, category: d.category, source: d.source, seconds: +(x.length / sr).toFixed(2), ...r });
     }
-    const line = r => `| ${r.file} | ${r.seconds}s | **${r.label}** | ${(r.dog * 100).toFixed(0)}% | ${(r.dogMean * 100).toFixed(0)}% | ${r.top.slice(0, 3).map(t => `${t.name} ${(t.score * 100).toFixed(0)}%`).join(', ')} | ${r.ms} |`;
-    summary = `### YAMNet 試作の結果（tfjs ${lab.tf}）\n\n| ファイル | 長さ | 判定 | 犬らしさ(最大) | 犬らしさ(平均) | 上位3クラス | ms |\n|---|---|---|---|---|---|---|\n${rows.map(line).join('\n')}\n`;
+    const line = r => `| ${r.file} | ${r.category} | ${r.seconds}s | **${r.label}** | ${(r.dog * 100).toFixed(0)}% | ${(r.dogMean * 100).toFixed(0)}% | ${r.top.slice(0, 3).map(t => `${t.name} ${(t.score * 100).toFixed(0)}%`).join(', ')} | ${r.ms} |`;
+    summary = `### YAMNet 試作の結果（tfjs ${lab.tf}）\n\n${thresholdReport(rows)}| ファイル | 種類 | 長さ | 判定 | 犬らしさ(最大) | 犬らしさ(平均) | 上位3クラス | ms |\n|---|---|---|---|---|---|---|---|\n${rows.map(line).join('\n')}\n`;
     console.log(summary);
     fs.mkdirSync(path.join(here, 'out'), { recursive: true });
     fs.writeFileSync(path.join(here, 'out/yamnet-result.json'), JSON.stringify({ tfjs: lab.tf, at: new Date().toISOString(), rows }, null, 1));

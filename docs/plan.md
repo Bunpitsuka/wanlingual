@@ -34,10 +34,11 @@
 | # | 項目 | 状態 | 備考 |
 |---|---|---|---|
 | 9 | YAMNet を CDN 固定版で読む試作 | 試作あり | `app/lab/yamnet.html`（本体とは別ページ、公開URL/lab/yamnet.html）。tfjs 4.22.0 を jsdelivr 固定、モデルは TF Hub v1。純粋関数は単体テスト 8 本。実機（ネット有り）での読み込み確認は GitHub Actions `lab-yamnet` が fixtures で自動実行 |
-| 10 | 犬か犬以外かのしきい値決め | 未 | 仮に 0.3。ESC-50 の dog 40 本＋犬以外で測ってから決める（`docs/datasets.md`） |
+| 10 | 犬か犬以外かのしきい値決め | 計測中 | 仮に 0.3。`lab-yamnet` ワークフローが ESC-50 の dog 40 本＋犬以外 40 本（8 クラス）を実行時に取得して、しきい値ごとの成績表を Summary に出す（`tests/lab/fetch-data.mjs`, `tests/lab/report.mjs`）。結果は `docs/accuracy.md` |
 | 11 | CC ライセンスの犬の鳴き声データセット洗い出し | 完了 | `docs/datasets.md`。商用で使えるのは CC0/CC BY のみ。気持ちラベル付きの公開データは実質なし |
-| 12 | 最初の「本物の犬」5 本（CC0）を fixtures に追加して判定を通す | 未 | pet-decoder-audio-fixtures（Internet Archive 由来） |
+| 12 | 最初の「本物の犬」を本体の判定に通す | 一部完了 | ESC-50 dog 40 本で吠え検出 40/40、特徴量の分布を `docs/accuracy.md` に記録（`tests/lab/features-check.mjs`）。CC0 5 本（pet-decoder-audio-fixtures）はこの作業環境から HF に届かないので Actions 側で取得・実行。NC のデータはリポジトリに入れない（`tests/lab/data/` は gitignore） |
 | 13 | MFCC を特徴量に追加 | 未 | 本物の犬データが数十件たまってから効果を測る |
+| 13b | ルールの見直し（本物 40 本の分布から） | 未 | 本物の連吠えは間隔がばらつく（gapCv 中央値 0.58）ので「規則的→要求」がほぼ出ない。正解ラベル付きデータが来てから直す |
 | 14 | YAMNet を本体の mic.js の前段に入れる | 未 | #9 と #10 が済んでから。オフライン時は従来どおり音量だけで動く設計にする |
 
 ## 公開ページの品質（社長指示 2026-11-02「申請系はまだ。練度と公開ページのクオリティを最大限に」）

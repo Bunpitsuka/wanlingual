@@ -1,5 +1,6 @@
 # フェーズ2試作の確認: GitHub のランナー（外に出られるネットワーク）で YAMNet を実際に読み込み、
-# fixtures の合成音を聞かせて「犬らしさ」を Summary に表で出す。公開には関係しない（deploy-pages とは別）。
+# fixtures の合成音と、本物の音（ESC-50 dog 40 本・犬以外 40 本、CC0 5 本。実行時に取得、リポジトリには入れない）を
+# 聞かせて「犬らしさ」としきい値ごとの成績を Summary に表で出す。公開には関係しない（deploy-pages とは別）。
 name: lab-yamnet
 on:
   workflow_dispatch:
@@ -11,14 +12,19 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: node tests/lab/yamnet-check.mjs
+      - name: 検証データを取得（ESC-50 は GitHub raw、CC0 5 本は Hugging Face。届かなければ飛ばす）
+        run: node tests/lab/fetch-data.mjs
+      - name: 本体の吠え検出・ルールに本物の音を通す
+        run: node tests/lab/features-check.mjs
+      - name: YAMNet に通す（犬らしさ、しきい値表）
+        run: node tests/lab/yamnet-check.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
