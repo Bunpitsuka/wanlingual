@@ -64,7 +64,7 @@ function setStatus(m) { $('status').textContent = m; }
 function show(r, src) {
   $('result').hidden = false;
   $('verdict').textContent = r.label;
-  $('score').textContent = `犬らしさ ${(r.dog * 100).toFixed(0)}%（平均 ${(r.dogMean * 100).toFixed(0)}%）・${r.frames} フレーム・${r.ms} ms・${src}`;
+  $('score').textContent = `犬らしさ ${(r.dog * 100).toFixed(0)}%（平均 ${(r.dogMean * 100).toFixed(0)}%、犬系の合計 ${(r.dogSum * 100).toFixed(0)}%${r.dogTop ? '、いちばん近いのは ' + r.dogTop : ''}）・${r.frames} フレーム・${r.ms} ms・${src}`;
   const ol = $('top'); ol.innerHTML = '';
   for (const t of r.top) { const li = document.createElement('li'); li.innerHTML = `<span>${t.name}</span><span>${(t.score * 100).toFixed(1)}%</span>`; ol.appendChild(li); }
   $('note').textContent = r.isDog ? '本体アプリならこのまま気持ちの判定に回します。' : r.label === '判断つかず' ? 'しきい値のあいだ。本物の犬で測って決めます。' : '本体アプリならこの音は捨てます（気持ちの判定に回しません）。';

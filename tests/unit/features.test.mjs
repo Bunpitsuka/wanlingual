@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { analyzeSamples } from '../../app/js/features.js';
-import { rules, predict, knn, growth, CATS } from '../../app/js/classify.js';
+import { rules, predict, knn, growth, tally, CATS } from '../../app/js/classify.js';
 
 function wav(path) {
   const b = readFileSync(new URL(path, import.meta.url));
@@ -59,4 +59,14 @@ test('育成度: 段階と的中率', () => {
   const five = Array.from({ length: 5 }, (_, i) => ({ label: 'play', pred: i % 2 ? 'play' : 'alarm', f: {} }));
   const g = growth(five); assert.equal(g.stage, '子犬'); assert.equal(g.toNext, 10); assert.equal(g.accuracy, 2 / 5);
   assert.equal(CATS.length, 6);
+});
+
+test('気持ち別の集計: 正解ラベルごとの件数と当たり数、多い順。0 件は出さない', () => {
+  const t = tally([
+    { label: 'play', pred: 'play' }, { label: 'play', pred: 'alarm' }, { label: 'play', pred: null },
+    { label: 'alarm', pred: 'alarm' }, { label: 'bogus', pred: 'alarm' },
+  ]);
+  assert.deepEqual(t.map(c => [c.label, c.n, c.hits]), [['遊ぼう', 3, 1], ['警戒', 1, 1]]);
+  assert.deepEqual(tally([]), []);
+  assert.deepEqual(tally(undefined), []);
 });

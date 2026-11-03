@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { pickEsc50, NON_DOG, PER_CLASS } from '../lab/fetch-data.mjs';
-import { thresholdReport } from '../lab/report.mjs';
+import { thresholdReport, clusterReport, clusterCell } from '../lab/report.mjs';
 
 const csv = ['filename,fold,target,category,esc10,src_file,take',
   ...Array.from({ length: 45 }, (_, i) => `${5 - (i % 5)}-${1000 + i}-A-0.wav,1,0,dog,True,${1000 + i},A`),
@@ -28,4 +28,24 @@ test('しきい値表: 犬の拾い率と犬以外の誤判定率が出る。片
   assert.match(md, /\| 0\.3 \| 3\/4（75%） \| 1\/2（50%） \| cat 1 \|/);
   assert.match(md, /\| 0\.4 \| 3\/4（75%） \| 0\/2（0%） \| — \|/);
   assert.equal(thresholdReport(rows.filter(r => r.category === 'dog')), '');
+});
+
+test('塊ごとの表: 塊単位の拾い率・誤判定率と「全部落ちる犬の本」が出る。塊が無ければ空', () => {
+  const c = (dog, dogSum, dogTop = 'Bark') => ({ start: 0, end: 0.5, n: 1, dog, dogSum, dogTop });
+  const rows = [
+    { file: 'd1', category: 'dog', source: 'ESC-50', clusters: [c(0.9, 0.95), c(0.5, 0.6)] },
+    { file: 'd2', category: 'dog', source: 'ESC-50', clusters: [c(0.2, 0.35, 'Whimper (dog)')] }, // 最大なら 0.3 で落ちる、合計なら通る
+    { file: 'd3', category: 'dog', source: 'ESC-50', clusters: [] },
+    { file: 'c1', category: 'cat', source: 'ESC-50', clusters: [c(0.05, 0.1), c(0.35, 0.4)] },
+    { file: 'bark4.wav', category: '合成', source: 'fixtures', clusters: [c(0.01, 0.02)] },
+  ];
+  const md = clusterReport(rows);
+  assert.match(md, /犬 3 本 → 3 塊、犬以外 1 本 → 2 塊/);
+  assert.match(md, /塊が 1 つも出なかった本: 犬 1\/3、犬以外 0\/1/);
+  assert.match(md, /\| 0\.3 \| 2\/3（67%） \| 1\/2（50%） \| 3\/3（100%） \| 1\/2（50%） \| 1／0 \|/);
+  assert.match(md, /Bark 2、Whimper \(dog\) 1/);
+  assert.equal(clusterReport(rows.map(r => ({ ...r, clusters: undefined }))), '');
+  assert.equal(clusterCell(rows[0].clusters), '2塊: 90/50%');
+  assert.equal(clusterCell([]), '0塊');
+  assert.equal(clusterCell(undefined), '—');
 });

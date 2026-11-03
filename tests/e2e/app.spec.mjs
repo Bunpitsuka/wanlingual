@@ -46,6 +46,9 @@ test('録音ファイル → 判定 → 正解を教える → LV.1 → 再読�
   await expect(page.locator('#answer')).not.toHaveClass(/on/);
   await expect(page.locator('#hist li')).toHaveCount(1);
   await expect(page.locator('#hist li').first()).toContainText('要求');
+  await expect(page.locator('#tally')).toBeVisible();                 // 気持ち別の集計（1 件でも出る）
+  await expect(page.locator('#tally .chip')).toHaveCount(1);
+  await expect(page.locator('#tally .chip').first()).toContainText('要求 1');
 
   await page.reload();
   await expect(page.locator('#lvLabel')).toHaveText('LV.1');

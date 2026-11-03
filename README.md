@@ -26,7 +26,7 @@ tests/
   fixtures/          合成した吠え声 WAV
   lab/               試作の確認スクリプト（GitHub Actions lab-yamnet で実行）。fetch-data.mjs が ESC-50 等の検証データを
                      tests/lab/data/ に落とす（gitignore。NC ライセンスなので検証のみ）。features-check.mjs は本体の検出器、
-                     yamnet-check.mjs は YAMNet に本物の音を通して表を出す
+                     yamnet-check.mjs は YAMNet に本物の音を通して表を出す（ファイル全体と、本体と同じ「吠えの塊」ごとの両方）
 .github/workflows/pages.yml   main に push → GitHub Pages へ自動デプロイ
 ```
 

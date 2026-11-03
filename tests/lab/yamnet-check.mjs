@@ -4,6 +4,7 @@
 //   node tests/lab/yamnet-check.mjs                 # 本番どおり CDN から読む
 //   TFJS_LOCAL=node_modules/@tensorflow/tfjs/dist/tf.min.js node tests/lab/yamnet-check.mjs   # CDN の代わりにローカルの tf.min.js
 //
+// 2026-11-04 から、本物の音はファイル全体に加えて「吠えの塊」（本体 mic.js の区切り）ごとにも通し、塊単位の犬らしさの表も出す（plan #14 の下調べ）。
 // fixtures（合成音）に加えて、tests/lab/data/ に本物の音（node tests/lab/fetch-data.mjs で取得: ESC-50 dog 40 本・犬以外 40 本・CC0 5 本）
 // があればそれも通し、犬らしさの分布と「しきい値をいくつにすると犬を何%拾い、犬以外を何%通すか」の表を出す。
 //
@@ -15,7 +16,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readWav } from './wav.mjs';
 import { listData } from './fetch-data.mjs';
-import { thresholdReport } from './report.mjs';
+import { thresholdReport, clusterReport, clusterCell } from './report.mjs';
+import { analyzeSamples } from '../../app/js/features.js';
+import { clustersFromEvents } from '../../app/lab/yamnet.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
@@ -44,13 +47,24 @@ try {
       ...FIXTURES.map(f => ({ file: f, path: path.join(root, 'tests/fixtures', f), category: '合成', source: 'fixtures' })),
       ...listData(),
     ];
+    const classify = (x, sr) => page.evaluate(([arr, sr]) => window.__lab.classifySamples(Float32Array.from(arr), sr), [Array.from(x), sr]);
     for (const d of inputs) {
       const { x, sr } = readWav(d.path);
-      const r = await page.evaluate(([arr, sr]) => window.__lab.classifySamples(Float32Array.from(arr), sr), [Array.from(x), sr]);
-      rows.push({ file: d.file, category: d.category, source: d.source, seconds: +(x.length / sr).toFixed(2), ...r });
+      const r = await classify(x, sr);
+      // 本体に入れたとき YAMNet が見るのはファイル全体ではなく「吠えの塊」（mic.js の区切り）なので、塊ごとにも通す（plan #14）
+      const clusters = [];
+      if (d.source !== 'fixtures') {
+        const a = analyzeSamples(x, sr);
+        for (const c of clustersFromEvents(a.events, x.length / sr)) {
+          const seg = x.subarray(Math.floor(c.start * sr), Math.floor(c.end * sr));
+          const cr = await classify(seg, sr);
+          clusters.push({ start: +c.start.toFixed(2), end: +c.end.toFixed(2), n: c.n, dog: cr.dog, dogSum: cr.dogSum, dogTop: cr.dogTop, ms: cr.ms, top: cr.top.slice(0, 3).map(t => t.name) });
+        }
+      }
+      rows.push({ file: d.file, category: d.category, source: d.source, seconds: +(x.length / sr).toFixed(2), ...r, clusters: d.source !== 'fixtures' ? clusters : undefined });
     }
-    const line = r => `| ${r.file} | ${r.category} | ${r.seconds}s | **${r.label}** | ${(r.dog * 100).toFixed(0)}% | ${(r.dogMean * 100).toFixed(0)}% | ${r.top.slice(0, 3).map(t => `${t.name} ${(t.score * 100).toFixed(0)}%`).join(', ')} | ${r.ms} |`;
-    summary = `### YAMNet 試作の結果（tfjs ${lab.tf}）\n\n${thresholdReport(rows)}| ファイル | 種類 | 長さ | 判定 | 犬らしさ(最大) | 犬らしさ(平均) | 上位3クラス | ms |\n|---|---|---|---|---|---|---|---|\n${rows.map(line).join('\n')}\n`;
+    const line = r => `| ${r.file} | ${r.category} | ${r.seconds}s | **${r.label}** | ${(r.dog * 100).toFixed(0)}% | ${(r.dogMean * 100).toFixed(0)}% | ${(r.dogSum * 100).toFixed(0)}% | ${clusterCell(r.clusters)} | ${r.top.slice(0, 3).map(t => `${t.name} ${(t.score * 100).toFixed(0)}%`).join(', ')} | ${r.ms} |`;
+    summary = `### YAMNet 試作の結果（tfjs ${lab.tf}）\n\n${thresholdReport(rows)}${clusterReport(rows)}| ファイル | 種類 | 長さ | 判定 | 犬らしさ(最大) | 犬らしさ(平均) | 犬系の合計 | 塊ごと(最大) | 上位3クラス | ms |\n|---|---|---|---|---|---|---|---|---|---|\n${rows.map(line).join('\n')}\n`;
     console.log(summary);
     fs.mkdirSync(path.join(here, 'out'), { recursive: true });
     fs.writeFileSync(path.join(here, 'out/yamnet-result.json'), JSON.stringify({ tfjs: lab.tf, at: new Date().toISOString(), rows }, null, 1));

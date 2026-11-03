@@ -65,6 +65,20 @@ export function predict(f, samples) {
 
 export const top = s => CATS.reduce((p, c) => (s[c.k] > s[p.k] ? c : p));
 
+/**
+ * 気持ち別の集計（育成ログの上に出す）。正解ラベルごとの件数と、判定が当たった件数。
+ * 戻り値: [{ k, label, n, hits }]（件数の多い順。0 件の気持ちは含めない）
+ */
+export function tally(samples) {
+  const m = {};
+  for (const s of samples || []) {
+    if (!CAT[s.label]) continue;
+    const t = (m[s.label] ||= { k: s.label, label: CAT[s.label].label, n: 0, hits: 0 });
+    t.n++; if (s.pred && s.pred === s.label) t.hits++;
+  }
+  return CATS.map(c => m[c.k]).filter(Boolean).sort((a, b) => b.n - a.n);
+}
+
 /** 育成度（ラベル数で段階） */
 export const STAGES = [[0, 'たまご'], [5, '子犬'], [15, '若犬'], [40, '成犬'], [100, '名犬'], [250, 'ポポ級']];
 export function growth(samples) {

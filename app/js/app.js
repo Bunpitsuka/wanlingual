@@ -1,6 +1,6 @@
 // app.js — 画面の配線。解析は features.js、判定は classify.js、保存は store.js、マイクは mic.js。
 import { analyzeSamples, mixdown } from './features.js';
-import { CATS, CAT, predict, top, growth } from './classify.js';
+import { CATS, CAT, predict, top, growth, tally } from './classify.js';
 import { loadSamples, saveSamples, loadDogName, saveDogName, loadOwnerName, saveOwnerName, exportJSON, importJSON } from './store.js';
 import { Listener, platformNotes } from './mic.js';
 import { share } from './share.js';
@@ -71,7 +71,20 @@ function renderChoices(predK) {
   sk.addEventListener('click', () => { $('answer').classList.remove('on'); current = null; });
   el.appendChild(sk);
 }
+function renderTally() {
+  const el = $('tally'); el.innerHTML = '';
+  const t = tally(samples);
+  el.hidden = !t.length;
+  for (const c of t) {
+    const span = document.createElement('span');
+    span.className = 'chip';
+    span.title = `${c.label}: 教えた ${c.n} 回のうち、判定も同じだったのは ${c.hits} 回`;
+    span.innerHTML = `<b>${c.label}</b> ${c.n}<small>${c.n ? `（当たり ${c.hits}）` : ''}</small>`;
+    el.appendChild(span);
+  }
+}
 function renderHist() {
+  renderTally();
   const el = $('hist'); el.innerHTML = '';
   const list = samples.slice(-10).reverse();
   if (!list.length) { el.innerHTML = '<li><span>まだ記録がありません</span></li>'; return; }

@@ -49,16 +49,38 @@ export function padMin(x, min = MIN_SAMPLES) {
 
 /**
  * scores: フレーム数 × 521 の配列（Array<Float32Array|number[]>）。
- * 戻り値: { dog: フレーム内の犬系クラス最大値をフレーム間で最大にしたもの, dogMean: 同じものの平均, frames }
+ * 戻り値: { dog: フレーム内の犬系クラス最大値をフレーム間で最大にしたもの, dogMean: 同じものの平均,
+ *          dogSum: フレーム内の犬系クラスの合計（上限 1）をフレーム間で最大にしたもの, dogTop: 最大だった犬系クラス名, frames }
  * 「犬系クラス」= Dog, Bark, Yip, Howl, Bow-wow, Growling, Whimper (dog)。
+ * dogSum は「くんくん・息のように Dog / Whimper / Pant に点が割れて最大値が伸びない声」を拾えるかを見るための別案（2026-11-04）。
  */
-export function dogScore(scores, idx = DOG_CLASS_INDEXES) {
-  let best = 0, sum = 0;
+export function dogScore(scores, idx = DOG_CLASS_INDEXES, names = YAMNET_CLASSES) {
+  let best = 0, sum = 0, bestSum = 0, topIdx = -1;
   for (const row of scores) {
-    let m = 0; for (const i of idx) if (row[i] > m) m = row[i];
-    if (m > best) best = m; sum += m;
+    let m = 0, mi = -1, s = 0;
+    for (const i of idx) { s += row[i]; if (row[i] > m) { m = row[i]; mi = i; } }
+    if (m > best) { best = m; topIdx = mi; }
+    if (s > bestSum) bestSum = s;
+    sum += m;
   }
-  return { dog: best, dogMean: scores.length ? sum / scores.length : 0, frames: scores.length };
+  return { dog: best, dogMean: scores.length ? sum / scores.length : 0, dogSum: Math.min(1, bestSum), dogTop: topIdx >= 0 ? names[topIdx] : null, frames: scores.length };
+}
+
+/**
+ * 本体 mic.js と同じ区切り方で、吠えイベント（features.analyzeSamples() の events: {start, dur} 秒）を「吠えの塊」にまとめる。
+ * 本体に YAMNet を入れるとき（plan #14）に YAMNet が見るのはファイル全体ではなくこの塊なので、塊単位の犬らしさを測るために使う。
+ * 戻り値: [{ start, end, n }]（秒。前後に preRoll / postRoll を足し、0〜totalSec に収める）
+ */
+export function clustersFromEvents(events, totalSec, { gapSec = 0.7, preRoll = 0.25, postRoll = 0.12, maxSec = 6 } = {}) {
+  const out = [];
+  let cur = null;
+  for (const e of events) {
+    const s = e.start, t = e.start + e.dur;
+    if (cur && s - cur.lastEnd < gapSec && s - cur.first < maxSec) { cur.lastEnd = Math.max(cur.lastEnd, t); cur.n++; }
+    else { if (cur) out.push(cur); cur = { first: s, lastEnd: t, n: 1 }; }
+  }
+  if (cur) out.push(cur);
+  return out.map(c => ({ start: Math.max(0, c.first - preRoll), end: Math.min(totalSec, c.lastEnd + postRoll), n: c.n }));
 }
 
 /** 全フレーム平均で上位 k クラス。[{index, name, score}] */
@@ -74,11 +96,11 @@ export function topK(scores, k = 5, names = YAMNET_CLASSES) {
  * 戻り値: { isDog, label: '犬の声' | '犬ではなさそう' | '判断つかず', dog, top }
  */
 export function decideDog(scores, { hi = 0.3, lo = 0.1 } = {}) {
-  const { dog, dogMean, frames } = dogScore(scores);
+  const { dog, dogMean, dogSum, dogTop, frames } = dogScore(scores);
   const top = topK(scores, 5);
   const isDog = dog >= hi;
   const label = isDog ? '犬の声' : dog < lo ? '犬ではなさそう' : '判断つかず';
-  return { isDog, label, dog, dogMean, frames, top };
+  return { isDog, label, dog, dogMean, dogSum, dogTop, frames, top };
 }
 
 /** モデルの出力（Tensor の配列か単体）から scores（frames × 521）を取り出す。順番は shape で見分ける */
