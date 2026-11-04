@@ -70,8 +70,12 @@ export function dogScore(scores, idx = DOG_CLASS_INDEXES, names = YAMNET_CLASSES
  * 本体 mic.js と同じ区切り方で、吠えイベント（features.analyzeSamples() の events: {start, dur} 秒）を「吠えの塊」にまとめる。
  * 本体に YAMNet を入れるとき（plan #14）に YAMNet が見るのはファイル全体ではなくこの塊なので、塊単位の犬らしさを測るために使う。
  * 戻り値: [{ start, end, n }]（秒。前後に preRoll / postRoll を足し、0〜totalSec に収める）
+ *
+ * minSec（2026-11-05、plan #14 の計測用）: 塊がこれより短ければ、本体のリングバッファ（過去 6 秒）にある「前の実音」を足して最低 minSec にする。
+ * 本体では塊が確定した時点で未来の音はまだ無いので、まず前へ広げる。前が足りない（ファイルの先頭）ときだけ後ろへ広げる。
+ * 0（既定）なら従来どおり塊そのまま（約 1 秒、YAMNet 側でゼロ埋め）。
  */
-export function clustersFromEvents(events, totalSec, { gapSec = 0.7, preRoll = 0.25, postRoll = 0.12, maxSec = 6 } = {}) {
+export function clustersFromEvents(events, totalSec, { gapSec = 0.7, preRoll = 0.25, postRoll = 0.12, maxSec = 6, minSec = 0 } = {}) {
   const out = [];
   let cur = null;
   for (const e of events) {
@@ -80,7 +84,14 @@ export function clustersFromEvents(events, totalSec, { gapSec = 0.7, preRoll = 0
     else { if (cur) out.push(cur); cur = { first: s, lastEnd: t, n: 1 }; }
   }
   if (cur) out.push(cur);
-  return out.map(c => ({ start: Math.max(0, c.first - preRoll), end: Math.min(totalSec, c.lastEnd + postRoll), n: c.n }));
+  return out.map(c => {
+    let start = Math.max(0, c.first - preRoll), end = Math.min(totalSec, c.lastEnd + postRoll);
+    if (minSec > 0 && end - start < minSec) {
+      start = Math.max(0, end - minSec);                     // まず前へ（リングバッファにある過去の実音）
+      if (end - start < minSec) end = Math.min(totalSec, start + minSec); // 先頭で足りなければ後ろへ
+    }
+    return { start, end, n: c.n };
+  });
 }
 
 /** 全フレーム平均で上位 k クラス。[{index, name, score}] */

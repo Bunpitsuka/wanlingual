@@ -16,7 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readWav } from './wav.mjs';
 import { listData } from './fetch-data.mjs';
-import { thresholdReport, clusterReport, clusterCell } from './report.mjs';
+import { thresholdReport, clusterReport, minSecReport, clusterCell } from './report.mjs';
 import { analyzeSamples } from '../../app/js/features.js';
 import { clustersFromEvents } from '../../app/lab/yamnet.js';
 
@@ -24,6 +24,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
 const PORT = 4174;
 const FIXTURES = ['bark4.wav', 'howl.wav', 'mic10s.wav', 'silence.wav'];
+/** 塊を広げるときの最低秒数（0 = 塊そのまま、は常に測る） */
+const MIN_SECS = [2, 3];
 
 const server = spawn('python3', ['-m', 'http.server', String(PORT), '--directory', 'app'], { cwd: root, stdio: 'ignore' });
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined });
@@ -52,19 +54,22 @@ try {
       const { x, sr } = readWav(d.path);
       const r = await classify(x, sr);
       // 本体に入れたとき YAMNet が見るのはファイル全体ではなく「吠えの塊」（mic.js の区切り）なので、塊ごとにも通す（plan #14）
-      const clusters = [];
+      // 2026-11-05: 同じ塊を、前後に広げて最低 MIN_SECS 秒の実音にしたときも通す（塊そのまま＝約 1 秒ゼロ埋めとの比較。plan #14）
+      const clusters = [], clustersMin = {};
       if (d.source !== 'fixtures') {
-        const a = analyzeSamples(x, sr);
-        for (const c of clustersFromEvents(a.events, x.length / sr)) {
+        const a = analyzeSamples(x, sr), total = x.length / sr;
+        const run = async (c) => {
           const seg = x.subarray(Math.floor(c.start * sr), Math.floor(c.end * sr));
           const cr = await classify(seg, sr);
-          clusters.push({ start: +c.start.toFixed(2), end: +c.end.toFixed(2), n: c.n, dog: cr.dog, dogSum: cr.dogSum, dogTop: cr.dogTop, ms: cr.ms, top: cr.top.slice(0, 3).map(t => t.name) });
-        }
+          return { start: +c.start.toFixed(2), end: +c.end.toFixed(2), n: c.n, dog: cr.dog, dogSum: cr.dogSum, dogTop: cr.dogTop, ms: cr.ms, top: cr.top.slice(0, 3).map(t => t.name) };
+        };
+        for (const c of clustersFromEvents(a.events, total)) clusters.push(await run(c));
+        for (const m of MIN_SECS) { clustersMin[m] = []; for (const c of clustersFromEvents(a.events, total, { minSec: m })) clustersMin[m].push(await run(c)); }
       }
-      rows.push({ file: d.file, category: d.category, source: d.source, seconds: +(x.length / sr).toFixed(2), ...r, clusters: d.source !== 'fixtures' ? clusters : undefined });
+      rows.push({ file: d.file, category: d.category, source: d.source, seconds: +(x.length / sr).toFixed(2), ...r, clusters: d.source !== 'fixtures' ? clusters : undefined, clustersMin: d.source !== 'fixtures' ? clustersMin : undefined });
     }
-    const line = r => `| ${r.file} | ${r.category} | ${r.seconds}s | **${r.label}** | ${(r.dog * 100).toFixed(0)}% | ${(r.dogMean * 100).toFixed(0)}% | ${(r.dogSum * 100).toFixed(0)}% | ${clusterCell(r.clusters)} | ${r.top.slice(0, 3).map(t => `${t.name} ${(t.score * 100).toFixed(0)}%`).join(', ')} | ${r.ms} |`;
-    summary = `### YAMNet 試作の結果（tfjs ${lab.tf}）\n\n${thresholdReport(rows)}${clusterReport(rows)}| ファイル | 種類 | 長さ | 判定 | 犬らしさ(最大) | 犬らしさ(平均) | 犬系の合計 | 塊ごと(最大) | 上位3クラス | ms |\n|---|---|---|---|---|---|---|---|---|---|\n${rows.map(line).join('\n')}\n`;
+    const line = r => `| ${r.file} | ${r.category} | ${r.seconds}s | **${r.label}** | ${(r.dog * 100).toFixed(0)}% | ${(r.dogMean * 100).toFixed(0)}% | ${(r.dogSum * 100).toFixed(0)}% | ${clusterCell(r.clusters)} | ${clusterCell(r.clustersMin?.[3])} | ${r.top.slice(0, 3).map(t => `${t.name} ${(t.score * 100).toFixed(0)}%`).join(', ')} | ${r.ms} |`;
+    summary = `### YAMNet 試作の結果（tfjs ${lab.tf}）\n\n${thresholdReport(rows)}${clusterReport(rows)}${minSecReport(rows)}| ファイル | 種類 | 長さ | 判定 | 犬らしさ(最大) | 犬らしさ(平均) | 犬系の合計 | 塊ごと(最大) | 塊を最低 3 秒に | 上位3クラス | ms |\n|---|---|---|---|---|---|---|---|---|---|---|\n${rows.map(line).join('\n')}\n`;
     console.log(summary);
     fs.mkdirSync(path.join(here, 'out'), { recursive: true });
     fs.writeFileSync(path.join(here, 'out/yamnet-result.json'), JSON.stringify({ tfjs: lab.tf, at: new Date().toISOString(), rows }, null, 1));

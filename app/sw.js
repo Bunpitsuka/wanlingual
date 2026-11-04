@@ -1,5 +1,5 @@
 // sw.js — オフライン用。アプリ本体は事前キャッシュ、フォント等はキャッシュしつつネットワーク優先。
-const VERSION = 'wl-v5';
+const VERSION = 'wl-v6';
 const SHELL = ['./', './index.html', './css/app.css', './js/app.js', './js/features.js', './js/classify.js', './js/store.js', './js/mic.js', './js/share.js', './js/recs.js', './js/mascot.js', './affiliate.json', './manifest.webmanifest', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', e => {

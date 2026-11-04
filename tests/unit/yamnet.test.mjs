@@ -77,6 +77,28 @@ test('吠えイベントを本体 mic.js と同じ区切り（0.7 秒空いた�
   assert.deepEqual(clustersFromEvents([], 5), []);
 });
 
+test('minSec: 短い塊は前の実音を足して最低 2〜3 秒にする。先頭で足りなければ後ろへ。長い塊はそのまま', () => {
+  const ev = [{ start: 3.0, dur: 0.15 }, { start: 3.4, dur: 0.15 }]; // 塊は 2.75〜3.67 秒（0.92 秒）
+  const c2 = clustersFromEvents(ev, 5, { minSec: 2 })[0];
+  assert.ok(Math.abs(c2.end - 3.67) < 1e-9, '終わりは変えない（未来の音は無い）');
+  assert.ok(Math.abs(c2.start - 1.67) < 1e-9, '前へ広げて 2 秒');
+  const c3 = clustersFromEvents(ev, 5, { minSec: 3 })[0];
+  assert.ok(Math.abs(c3.end - c3.start - 3) < 1e-9);
+  // ファイルの先頭: 前に 0.3 秒しか無いので後ろへ広げる
+  const head = clustersFromEvents([{ start: 0.3, dur: 0.2 }], 5, { minSec: 2 })[0];
+  assert.equal(head.start, 0); assert.ok(Math.abs(head.end - 2) < 1e-9);
+  // ファイルが minSec より短ければ全体
+  const tiny = clustersFromEvents([{ start: 0.5, dur: 0.2 }], 1.5, { minSec: 3 })[0];
+  assert.equal(tiny.start, 0); assert.equal(tiny.end, 1.5);
+  // もともと長い塊は変わらない。minSec 0（既定）は従来どおり
+  const longEv = Array.from({ length: 8 }, (_, i) => ({ start: 1 + i * 0.4, dur: 0.15 })); // 0.75〜3.95 秒
+  assert.deepEqual(clustersFromEvents(longEv, 5, { minSec: 2 }), clustersFromEvents(longEv, 5));
+  assert.ok(Math.abs(clustersFromEvents(ev, 5)[0].start - 2.75) < 1e-9);
+  // 塊の数と吠え回数は minSec で変わらない
+  const many = [{ start: 1, dur: 0.1 }, { start: 3, dur: 0.1 }, { start: 4.5, dur: 0.1 }];
+  assert.deepEqual(clustersFromEvents(many, 5, { minSec: 3 }).map(c => c.n), clustersFromEvents(many, 5).map(c => c.n));
+});
+
 test('上位クラスは平均スコア順で名前が付く', () => {
   const scores = [row([[0, 0.9], [70, 0.5]]), row([[0, 0.7], [70, 0.9]])];
   const t = topK(scores, 2);
