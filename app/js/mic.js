@@ -7,7 +7,9 @@
 export class Listener {
   /**
    * @param {object} opts
-   * @param {(x:Float32Array, sr:number)=>void} opts.onCluster  クラスター確定時（波形はコピー）
+   * @param {(x:Float32Array, sr:number, ctx:{wide:Float32Array})=>void} opts.onCluster  クラスター確定時（波形はコピー）。
+   *   第 3 引数 wide は、塊の前にリングバッファの実音を足して最低 contextSec 秒にした波形（plan #14: YAMNet の「犬か犬以外か」用。
+   *   未来の音は待たない）。特徴量（気持ちの判定）は従来どおり第 1 引数の塊そのものから取る。
    * @param {(level:number, thr:number, listening:boolean)=>void} [opts.onLevel]  メーター表示用（約20fps）
    * @param {(msg:string)=>void} [opts.onStatus]
    */
@@ -23,6 +25,7 @@ export class Listener {
     this.mergeGapMs = 90;
     this.preRollSec = 0.25;
     this.postRollSec = 0.12;
+    this.contextSec = 2;         // wide の最低の長さ（2026-11-05 の計測で 2 秒に決定。docs/accuracy.md）
     this.running = false;
   }
 
@@ -123,16 +126,26 @@ export class Listener {
     if (now - this.lastLevelEmit >= this.sr / 20) { this.lastLevelEmit = now; this.onLevel(rms, thr, true); }
   }
 
-  _emitCluster(now) {
-    const sr = this.sr, L = this.ring.length;
-    const from = Math.max(this.clusterStart - Math.round(this.preRollSec * sr), now - L);
-    const to = Math.min(now, (this.lastEventEnd >= 0 ? this.lastEventEnd : now) + Math.round(this.postRollSec * sr));
+  /** リングバッファから絶対位置 [from, to) をコピーする（now = 現在の絶対位置。L より前は取れない） */
+  _slice(from, to, now) {
+    const L = this.ring.length;
+    from = Math.max(from, now - L, 0); to = Math.min(to, now);
     const len = Math.max(0, to - from);
     const out = new Float32Array(len);
     for (let i = 0; i < len; i++) out[i] = this.ring[(this.ringPos - (now - from) + i + L * 2) % L];
+    return out;
+  }
+
+  _emitCluster(now) {
+    const sr = this.sr;
+    const from = this.clusterStart - Math.round(this.preRollSec * sr);
+    const to = Math.min(now, (this.lastEventEnd >= 0 ? this.lastEventEnd : now) + Math.round(this.postRollSec * sr));
+    const out = this._slice(from, to, now);
+    // 前を足して最低 contextSec 秒（塊がもともと長ければそのまま）
+    const wide = this._slice(Math.min(from, to - Math.round(this.contextSec * sr)), to, now);
     const events = this.events;
     this.clusterStart = -1; this.events = 0; this.lastEventEnd = -1; this.inEvent = false;
-    if (events > 0 && len > sr * 0.1) this.onCluster(out, sr);
+    if (events > 0 && out.length > sr * 0.1) this.onCluster(out, sr, { wide });
   }
 }
 

@@ -51,7 +51,7 @@ test('塊ごとの表: 塊単位の拾い率・誤判定率と「全部落ちる
 });
 
 test('塊を最低 2〜3 秒に広げた比較表: 範囲ごと・しきい値ごとの拾い率と、救われた／落ちた塊が出る。無ければ空', () => {
-  const c = (dog, start, end) => ({ start, end, n: 1, dog, dogSum: dog, dogTop: 'Bark' });
+  const c = (dog, start, end) => ({ start, end, n: 1, dog, dogSum: dog, dogTop: 'Bark', ms: Math.round((end - start) * 300) });
   const rows = [
     { file: 'd1.wav', category: 'dog', source: 'ESC-50', clusters: [c(0.9, 1, 2), c(0.1, 3, 4)], clustersMin: { 2: [c(0.95, 0, 2), c(0.5, 2, 4)], 3: [c(0.97, 0, 3), c(0.6, 1, 4)] } },
     { file: 'd2.wav', category: 'dog', source: 'ESC-50', clusters: [c(0.02, 2, 3)], clustersMin: { 2: [c(0.05, 1, 3)], 3: [c(0.35, 0, 3)] } },  // 3 秒で救われる
@@ -60,9 +60,9 @@ test('塊を最低 2〜3 秒に広げた比較表: 範囲ごと・しきい値�
     { file: 'bark4.wav', category: '合成', source: 'fixtures', dog: 0.01 },
   ];
   const md = minSecReport(rows);
-  assert.match(md, /\| そのまま \| 1\.00／1\.00 秒 \| 40% \| 0\.3 \| 2\/4（50%） \| 0\/1（0%） \| 1（d2） \|/);
-  assert.match(md, /\| 最低 2 秒 \| 2\.00／2\.00 秒 \| 50% \| 0\.3 \| 2\/4（50%） \| 0\/1（0%） \| 2（d2、d3） \|/);
-  assert.match(md, /\| 最低 3 秒 \| 3\.00／3\.00 秒 \| 60% \| 0\.3 \| 3\/4（75%） \| 1\/1（100%） \| 1（d3） \|/);
+  assert.match(md, /\| そのまま \| 1\.00／1\.00 秒 \| 300 ms（10–90%: 300–300） \| 40% \| 0\.3 \| 2\/4（50%） \| 0\/1（0%） \| 1（d2） \|/);
+  assert.match(md, /\| 最低 2 秒 \| 2\.00／2\.00 秒 \| 600 ms（10–90%: 600–600） \| 50% \| 0\.3 \| 2\/4（50%） \| 0\/1（0%） \| 2（d2、d3） \|/);
+  assert.match(md, /\| 最低 3 秒 \| 3\.00／3\.00 秒 \| 900 ms（10–90%: 900–900） \| 60% \| 0\.3 \| 3\/4（75%） \| 1\/1（100%） \| 1（d3） \|/);
   assert.match(md, /最低 2 秒にすると（しきい値 0\.3）: 救われた犬の塊 1（d1#2 10→50%）、逆に落ちた犬の塊 1（d3#1 40→20%）、新たに誤判定した犬以外の塊 0/);
   assert.match(md, /最低 3 秒にすると（しきい値 0\.3）: 救われた犬の塊 2（d1#2 10→60%、d2#1 2→35%）、逆に落ちた犬の塊 1（d3#1 40→25%）、新たに誤判定した犬以外の塊 1（c1#1 5→32%）/);
   assert.equal(minSecReport(rows.map(r => ({ ...r, clustersMin: undefined }))), '');

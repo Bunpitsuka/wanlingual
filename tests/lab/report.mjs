@@ -64,13 +64,14 @@ export function minSecReport(rows, { thresholds = [0.2, 0.3, 0.4] } = {}) {
   const secs = arr => arr.length ? (arr.reduce((p, c) => p + (c.end - c.start), 0) / arr.length).toFixed(2) : '—';
   const q = (arr, p) => { const s = [...arr].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
   let md = `**塊を前後に広げて最低 2〜3 秒の実音を渡したとき（plan #14 の計測。塊の数・区切りは同じで、渡す範囲だけ違う）**\n\n`;
-  md += `| 渡す範囲 | 塊の平均の長さ（犬／犬以外） | 犬の塊の犬らしさ 中央値 | しきい値 | 犬の塊を「犬」と判定 | 犬以外の塊を「犬」と誤判定 | 塊が全部落ちる犬の本 |\n|---|---|---|---|---|---|---|\n`;
+  const msOf = arr => { const v = arr.map(c => c.ms).filter(m => Number.isFinite(m)); return v.length ? `${q(v, 0.5)} ms（10–90%: ${q(v, 0.1)}–${q(v, 0.9)}）` : '—'; };
+  md += `| 渡す範囲 | 塊の平均の長さ（犬／犬以外） | 塊 1 つの処理時間 中央値 | 犬の塊の犬らしさ 中央値 | しきい値 | 犬の塊を「犬」と判定 | 犬以外の塊を「犬」と誤判定 | 塊が全部落ちる犬の本 |\n|---|---|---|---|---|---|---|---|\n`;
   for (const [name, get] of variants) {
     const dc = dogs.flatMap(get), oc = others.flatMap(get);
     if (!dc.length) continue;
     for (const t of thresholds) {
       const drop = dogs.filter(r => get(r).length && get(r).every(c => c.dog < t)).map(r => r.file.replace(/\.wav$/, ''));
-      md += `| ${name} | ${secs(dc)}／${secs(oc)} 秒 | ${(q(dc.map(c => c.dog), 0.5) * 100).toFixed(0)}% | ${t} | ${pct(dc.filter(c => c.dog >= t).length, dc.length)} | ${pct(oc.filter(c => c.dog >= t).length, oc.length)} | ${drop.length}${drop.length ? `（${drop.slice(0, 6).join('、')}${drop.length > 6 ? '…' : ''}）` : ''} |\n`;
+      md += `| ${name} | ${secs(dc)}／${secs(oc)} 秒 | ${msOf([...dc, ...oc])} | ${(q(dc.map(c => c.dog), 0.5) * 100).toFixed(0)}% | ${t} | ${pct(dc.filter(c => c.dog >= t).length, dc.length)} | ${pct(oc.filter(c => c.dog >= t).length, oc.length)} | ${drop.length}${drop.length ? `（${drop.slice(0, 6).join('、')}${drop.length > 6 ? '…' : ''}）` : ''} |\n`;
     }
   }
   // 塊そのまま → 広げたとき、しきい値 0.3 でどの塊が救われ／落ちたか
