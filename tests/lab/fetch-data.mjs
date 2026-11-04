@@ -18,11 +18,26 @@ const ESC_RAW = 'https://raw.githubusercontent.com/karoldvl/ESC-50/master';
 export const NON_DOG = ['cat', 'rooster', 'crying_baby', 'door_wood_knock', 'clapping', 'laughing', 'car_horn', 'coughing'];
 export const PER_CLASS = 5;
 
+/** 1 回の取得。5xx と通信エラーは少し待って最大 retries 回やり直す（2026-11-05: GitHub raw が一時的に 503 を返して run が落ちたため） */
+async function fetchRetry(url, { retries = 3, waitMs = 3000 } = {}) {
+  for (let i = 0; ; i++) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+      if (r.ok) return r;
+      if (r.status < 500 || i >= retries) throw new Error('HTTP ' + r.status);
+      console.warn(`retry ${i + 1}/${retries}`, url, '- HTTP', r.status);
+    } catch (e) {
+      if (i >= retries || /^HTTP [1-4]/.test(e.message)) throw e;
+      console.warn(`retry ${i + 1}/${retries}`, url, '-', e.message);
+    }
+    await new Promise(ok => setTimeout(ok, waitMs * (i + 1)));
+  }
+}
+
 async function get(url, file, { optional = false } = {}) {
   if (fs.existsSync(file) && fs.statSync(file).size > 0) return true;
   try {
-    const r = await fetch(url, { signal: AbortSignal.timeout(60_000) });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const r = await fetchRetry(url, { retries: optional ? 1 : 3 });
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, Buffer.from(await r.arrayBuffer()));
     return true;
