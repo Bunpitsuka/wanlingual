@@ -99,3 +99,16 @@ export function clusterCell(clusters) {
   const show = clusters.slice(0, 6).map(c => (c.dog * 100).toFixed(0)).join('/');
   return `${clusters.length}塊: ${show}%${clusters.length > 6 ? '…' : ''}`;
 }
+
+/**
+ * 本体 dogcheck.js を本物の tfjs・モデルに通した結果（tests/lab/dogcheck-probe.mjs）を 1 段落に。
+ * p: probeDogcheck() の戻り値、file: 通した音、labDog: 同じ範囲を実験室（app/lab/yamnet.html）に通したときの犬らしさ（無ければ null）
+ */
+export function dogcheckReport(p, { file = '', labDog = null } = {}) {
+  if (!p) return '';
+  const head = '**本体の dogcheck.js（plan #14 ②）を本物の tfjs・モデルで**: ';
+  if (p.state !== 'ready' || !p.first) return `${head}読み込めず（state: ${p.state}${p.error ? '、' + p.error : ''}）。本体は従来どおり動く\n\n`;
+  const pc = v => (v * 100).toFixed(0) + '%';
+  const same = labDog == null ? '' : Math.abs(labDog - p.first.dog) < 0.01 ? `（実験室と同じ ${pc(labDog)}）` : `（実験室は ${pc(labDog)}。**ずれている**）`;
+  return `${head}読み込み ${(p.loadMs / 1000).toFixed(1)} 秒で ready。${file} の最初の塊（前を足して ${p.first.sec.toFixed(2)} 秒）→ 犬らしさ ${pc(p.first.dog)}${same}、${p.first.isDog ? '犬' : '犬以外っぽい'}。推論 1 回目 ${p.first.ms} ms、2 回目 ${p.second ? p.second.ms + ' ms' : '—'}\n\n`;
+}

@@ -68,3 +68,17 @@ test('塊を最低 2〜3 秒に広げた比較表: 範囲ごと・しきい値�
   assert.equal(minSecReport(rows.map(r => ({ ...r, clustersMin: undefined }))), '');
   assert.equal(minSecReport(rows.filter(r => r.category === 'dog')), '');
 });
+
+test('dogcheckReport: 本体 dogcheck.js を本物のモデルに通した結果を 1 段落にする', async () => {
+  const { dogcheckReport } = await import('../lab/report.mjs');
+  assert.equal(dogcheckReport(null), '');
+  const ok = { state: 'ready', error: null, loadMs: 4210, first: { isDog: true, dog: 0.861, dogTop: 'Bark', ms: 1203, sec: 2 }, second: { isDog: true, dog: 0.861, dogTop: 'Bark', ms: 870, sec: 2 } };
+  const md = dogcheckReport(ok, { file: '1-100032-A-0.wav', labDog: 0.86 });
+  assert.match(md, /読み込み 4\.2 秒で ready/);
+  assert.match(md, /1-100032-A-0\.wav の最初の塊（前を足して 2\.00 秒）→ 犬らしさ 86%（実験室と同じ 86%）、犬/);
+  assert.match(md, /1 回目 1203 ms、2 回目 870 ms/);
+  assert.match(dogcheckReport(ok, { file: 'a.wav', labDog: 0.5 }), /ずれている/);
+  assert.match(dogcheckReport({ ...ok, first: { ...ok.first, isDog: false, dog: 0.02 } }, { file: 'a.wav' }), /犬らしさ 2%、犬以外っぽい/);
+  const ng = dogcheckReport({ state: 'failed', error: 'TensorFlow.js が読み込めません', loadMs: 30, first: null, second: null });
+  assert.match(ng, /読み込めず（state: failed、TensorFlow\.js が読み込めません）/);
+});

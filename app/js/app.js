@@ -6,6 +6,7 @@ import { Listener, platformNotes } from './mic.js';
 import { share } from './share.js';
 import { loadConfig as loadRecsConfig, links as recLinks, DISCLOSURE } from './recs.js';
 import { mascotSvg } from './mascot.js';
+import { DogCheck, isEnabled as dogcheckEnabled, applyUrlParam as dogcheckUrlParam } from './dogcheck.js';
 
 const $ = id => document.getElementById(id);
 let samples = loadSamples();
@@ -17,6 +18,8 @@ let lastMicAt = 0;
 let lastStageIndex = -1;
 let micStartedAt = 0, micBarks = 0, micTimer = null;
 let installEvt = null;     // Android Chrome の beforeinstallprompt
+let dogcheck = null;       // 犬の声チェック（YAMNet。既定オフ。plan #14 ②）
+let resultSeq = 0;         // 判定を表示するたびに進む（遅れて届いた犬らしさを古い判定に付けないため）
 
 // ---------- 育成メーター ----------
 function renderGrowth() {
@@ -109,6 +112,7 @@ function confidenceLevel(s, k) {
 
 // ---------- 判定の表示（ファイル／マイク共通） ----------
 function showResult(a, source) {
+  resultSeq++;
   draw(a); renderFeat(a.feats);
   if (a.feats.n === 0) {
     renderBars(null); $('predBig').textContent = '？'; $('predConf').textContent = '鳴き声が見つかりません'; $('quote').textContent = '';
@@ -169,6 +173,31 @@ function renderRecs(k) {
   el.hidden = false;
 }
 
+// ---------- 犬の声チェック（YAMNet。既定オフ。plan #14 の実装 ②） ----------
+// 設定 wl.dogcheck がオンのときだけ、監視を始めたあとに裏でモデルを読む。読めるまで・読めないとき・オフのときは何も変わらない。
+// いまは犬らしさを数字で添えるだけ（判定・保存は従来どおり）。「犬以外っぽい音」の扱いは次の ③。
+function startDogCheck() {
+  if (!dogcheckEnabled()) return;
+  if (!dogcheck) dogcheck = new DogCheck({
+    onState: s => {
+      if (s === 'ready') toast('犬の声チェックの準備ができました');
+      else if (s === 'failed') toast('犬の声チェックは読み込めませんでした（判定はこれまでどおり動きます）');
+    },
+  });
+  dogcheck.load();
+}
+async function runDogCheck(wide, sr) {
+  if (!dogcheck || !wide) return;
+  const seq = resultSeq;
+  const r = await dogcheck.check(wide, sr);
+  if (!r || seq !== resultSeq) return; // 判定できなかった、または次の判定に進んでいた
+  if (current) current.dog = r;
+  const span = document.createElement('span');
+  span.id = 'dogChip';
+  span.textContent = `犬らしさ ${Math.round(r.dog * 100)}%（${(r.ms / 1000).toFixed(1)}秒）`;
+  $('feat').appendChild(span);
+}
+
 // ---------- マイク監視 ----------
 function renderMicState() {
   if (!listener?.running) { $('micState').textContent = ''; return; }
@@ -190,13 +219,13 @@ async function toggleMic() {
   const btn = $('micBtn'); btn.disabled = true;
   try {
     listener = new Listener({
-      onCluster: (x, sr) => {
+      onCluster: (x, sr, ctx) => {
         const a = analyzeSamples(x, sr, { thrAbs: 0.01 });
         if (a.feats.n === 0) return;
         if (Date.now() - lastMicAt < 1500) return; // 連打防止
         lastMicAt = Date.now();
         $('status').textContent = '';
-        showResult(a, 'mic');
+        if (showResult(a, 'mic')) runDogCheck(ctx?.wide, sr);
       },
       onLevel: (rms, thr) => {
         const pct = Math.min(100, Math.round(rms / (thr * 2.5) * 100));
@@ -208,6 +237,7 @@ async function toggleMic() {
     await listener.start();
     setMicUI(true);
     toast('聞いています。画面はこのままにしてください');
+    startDogCheck();
   } catch (err) {
     console.error(err); listener = null; setMicUI(false);
     $('status').textContent = err?.name === 'NotAllowedError' ? 'マイクの使用が許可されませんでした。ブラウザの設定で許可してください。' : (err?.message || 'マイクを開始できませんでした');
@@ -275,6 +305,7 @@ $('reset').addEventListener('click', () => {
   samples = []; saveSamples(samples); renderGrowth(); renderHist(); resetArmed = false; $('reset').textContent = 'リセット'; toast('リセットしました');
 });
 
+dogcheckUrlParam(location.search); // ?dogcheck=on / off（実機で試すための入口。既定はオフ）
 draw(null); renderBars(null); renderGrowth(); renderHist(); renderNotes(); setMicUI(false);
 loadRecsConfig().then(c => { recsCfg = c; });
 
@@ -282,4 +313,4 @@ loadRecsConfig().then(c => { recsCfg = c; });
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(e => console.warn('sw', e)));
 }
-window.__wl = { get samples() { return samples; }, analyzeSamples, predict, setRecsConfig(c) { recsCfg = c; } }; // テスト用フック
+window.__wl = { get samples() { return samples; }, analyzeSamples, predict, setRecsConfig(c) { recsCfg = c; }, get dogcheck() { return dogcheck; } }; // テスト用フック

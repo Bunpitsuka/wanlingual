@@ -16,6 +16,7 @@ app/                 PWA 本体（静的サイト。このフォルダをその�
   js/classify.js     判定（ルール + kNN）、育成度
   js/store.js        保存（localStorage。特徴量と正解だけ。音声は保存しない）
   js/mic.js          マイク常時監視 → 吠えの塊を切り出す
+  js/dogcheck.js     犬の声チェック（YAMNet。**既定オフ**。`?dogcheck=on` で試せる。オンのときだけ監視開始後に裏で tfjs とモデルを読む）
   js/app.js          画面の配線
   sw.js              オフライン用 service worker（更新時は VERSION を上げる）
   manifest.webmanifest, icons/
@@ -27,7 +28,8 @@ tests/
   lab/               試作の確認スクリプト（GitHub Actions lab-yamnet で実行）。fetch-data.mjs が ESC-50 等の検証データを
                      tests/lab/data/ に落とす（gitignore。NC ライセンスなので検証のみ）。features-check.mjs は本体の検出器、
                      yamnet-check.mjs は YAMNet に本物の音を通して表を出す（ファイル全体、本体と同じ「吠えの塊」ごと、
-                     塊を前後に広げて最低 2〜3 秒にしたもの）
+                     塊を前後に広げて最低 2〜3 秒にしたもの）。
+                     dogcheck-probe.mjs は本体の dogcheck.js を本体のページの中で本物の tfjs・モデルに通す
 .github/workflows/pages.yml   main に push → GitHub Pages へ自動デプロイ
 ```
 

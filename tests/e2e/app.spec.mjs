@@ -178,3 +178,81 @@ test('結果をシェア: 画像カードができる（共有シートが無い
   expect(src.length).toBeGreaterThan(20000);
   await expect(page.locator('#shareNote')).toContainText('Threads');
 });
+
+// ---------- 犬の声チェック（YAMNet。既定オフ。plan #14 の実装 ②） ----------
+// 本物の tfjs・モデルはネットワークが要るので、ここでは偽の tf を返して「配線」だけを確かめる（本物の数字は lab-yamnet）。
+test.describe('犬の声チェック（既定オフ）', () => {
+  test.use({ serviceWorkers: 'block' }); // page.route は Service Worker 経由の通信を拾えないため
+
+  const FAKE_TF = `window.tf = {
+    version: { tfjs: 'fake' },
+    tensor1d: x => ({ n: x.length, dispose() {} }),
+    loadGraphModel: async (url, opts) => { window.__fakeTf = { url, opts, calls: 0, lens: [] }; return {
+      execute: input => { window.__fakeTf.calls++; window.__fakeTf.lens.push(input.n); const row = new Float32Array(521); row[70] = 0.93; return { shape: [1, 521], array: async () => [row], dispose() {} }; },
+    }; },
+  };`;
+
+  test('既定では tfjs もモデルも読みに行かず、犬らしさも出ない', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', '偽マイクは Chromium のみ');
+    const urls = [];
+    page.on('request', r => urls.push(r.url()));
+    await page.reload();
+    expect(await page.evaluate(() => localStorage.getItem('wl.dogcheck'))).toBeNull();
+    await page.locator('#micBtn').click();
+    await expect(page.locator('#predBig')).not.toHaveText('── ──', { timeout: 25000 });
+    await page.waitForTimeout(1500);
+    await expect(page.locator('#dogChip')).toHaveCount(0);
+    expect(await page.evaluate(() => window.__wl.dogcheck)).toBeNull();
+    expect(urls.filter(u => /jsdelivr|tfhub|kaggle|\/lab\/yamnet/.test(u))).toEqual([]);
+    await page.locator('#micBtn').click();
+  });
+
+  test('?dogcheck=on で監視を始めると裏で読み、判定に犬らしさを添える（判定・保存は従来どおり）', async ({ page, browserName }, testInfo) => {
+    test.skip(browserName !== 'chromium', '偽マイクは Chromium のみ');
+    const cdn = [];
+    await page.route('https://cdn.jsdelivr.net/**', r => { cdn.push(r.request().url()); return r.fulfill({ status: 200, contentType: 'application/javascript', body: FAKE_TF }); });
+    await page.goto('./?dogcheck=on');
+    expect(await page.evaluate(() => localStorage.getItem('wl.dogcheck'))).toBe('on');
+    expect(await page.evaluate(() => window.__wl.dogcheck)).toBeNull(); // 監視を始めるまでは何も読まない
+    expect(cdn).toEqual([]);
+
+    await page.locator('#micBtn').click();
+    await expect(page.locator('#micState')).toContainText('監視中', { timeout: 10000 });
+    await expect.poll(() => page.evaluate(() => window.__wl.dogcheck?.state), { timeout: 15000 }).toBe('ready');
+    expect(cdn).toEqual(['https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js']); // 固定バージョン
+    expect(await page.evaluate(() => window.__fakeTf.url)).toBe('https://tfhub.dev/google/tfjs-model/yamnet/tfjs/1');
+
+    await expect(page.locator('#dogChip')).toContainText('犬らしさ 93%', { timeout: 30000 });
+    await expect(page.locator('#feat')).toContainText('吠え');
+    await expect(page.locator('#answer')).toHaveClass(/on/);
+    await page.screenshot({ path: path.join(shots, `${testInfo.project.name}-dogcheck.png`), fullPage: true });
+    // YAMNet に渡るのは 16kHz。塊の前を足すので、塊そのもの（約 1 秒）より長く、リングバッファ（6 秒）以内
+    const lens = await page.evaluate(() => window.__fakeTf.lens);
+    testInfo.annotations.push({ type: 'yamnet-input-samples', description: lens.join(',') });
+    expect(Math.max(...lens)).toBeGreaterThanOrEqual(15600);
+    expect(Math.max(...lens)).toBeLessThanOrEqual(6 * 16000);
+
+    // 教えたときに保存されるのは従来と同じ項目だけ（犬らしさは ② では保存しない）
+    await page.locator('#choices button[data-k="alarm"]').click();
+    const arr = JSON.parse(await page.evaluate(() => localStorage.getItem('wanlingual.samples.v1')));
+    expect(arr).toHaveLength(1);
+    expect(Object.keys(arr[0]).sort()).toEqual(['f', 'label', 'pred', 'src', 't']);
+    await page.locator('#micBtn').click();
+
+    // ?dogcheck=off で戻せる
+    await page.goto('./?dogcheck=off');
+    expect(await page.evaluate(() => localStorage.getItem('wl.dogcheck'))).toBeNull();
+  });
+
+  test('オンでも tfjs が読めなければ従来どおり判定する', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', '偽マイクは Chromium のみ');
+    await page.route('https://cdn.jsdelivr.net/**', r => r.abort());
+    await page.goto('./?dogcheck=on');
+    await page.locator('#micBtn').click();
+    await expect.poll(() => page.evaluate(() => window.__wl.dogcheck?.state), { timeout: 15000 }).toBe('failed');
+    await expect(page.locator('#predBig')).not.toHaveText('── ──', { timeout: 25000 });
+    await expect(page.locator('#answer')).toHaveClass(/on/);
+    await expect(page.locator('#dogChip')).toHaveCount(0);
+    await page.locator('#micBtn').click();
+  });
+});

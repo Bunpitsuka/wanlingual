@@ -16,7 +16,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readWav } from './wav.mjs';
 import { listData } from './fetch-data.mjs';
-import { thresholdReport, clusterReport, minSecReport, clusterCell } from './report.mjs';
+import { thresholdReport, clusterReport, minSecReport, clusterCell, dogcheckReport } from './report.mjs';
+import { probeDogcheck } from './dogcheck-probe.mjs';
 import { analyzeSamples } from '../../app/js/features.js';
 import { clustersFromEvents } from '../../app/lab/yamnet.js';
 
@@ -34,10 +35,12 @@ let summary = '';
 try {
   const page = await browser.newPage();
   page.on('console', m => { if (m.type() === 'error') console.error('[page]', m.text()); });
-  if (process.env.TFJS_LOCAL) {
+  const tfjsLocalRoute = async p => {
+    if (!process.env.TFJS_LOCAL) return;
     const body = fs.readFileSync(path.resolve(root, process.env.TFJS_LOCAL));
-    await page.route('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@**', r => r.fulfill({ status: 200, contentType: 'application/javascript', body }));
-  }
+    await p.route('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@**', r => r.fulfill({ status: 200, contentType: 'application/javascript', body }));
+  };
+  await tfjsLocalRoute(page);
   for (let i = 0; i < 50 && !(await fetch(`http://127.0.0.1:${PORT}/lab/yamnet.html`).then(r => r.ok).catch(() => false)); i++) await new Promise(ok => setTimeout(ok, 200));
   await page.goto(`http://127.0.0.1:${PORT}/lab/yamnet.html`);
   await page.waitForFunction(() => window.__lab && (window.__lab.ready || window.__lab.error), null, { timeout: 180_000 });
@@ -50,6 +53,18 @@ try {
       ...listData(),
     ];
     const classify = (x, sr) => page.evaluate(([arr, sr]) => window.__lab.classifySamples(Float32Array.from(arr), sr), [Array.from(x), sr]);
+    // 2026-11-06: 本体の dogcheck.js（plan #14 ②）を本体のページの中で本物の tfjs・モデルに通す。本物の犬があればその最初の塊（前を足して最低 2 秒）、無ければ合成音
+    let dogcheckMd = '';
+    try {
+      const d = inputs.find(i => i.category.startsWith('dog')) || inputs[0];
+      const { x, sr } = readWav(d.path);
+      const c = clustersFromEvents(analyzeSamples(x, sr).events, x.length / sr, { minSec: 2 })[0] || { start: 0, end: Math.min(2, x.length / sr) };
+      const seg = x.subarray(Math.floor(c.start * sr), Math.floor(c.end * sr));
+      const probe = await probeDogcheck(browser, `http://127.0.0.1:${PORT}/`, seg, sr, { route: tfjsLocalRoute });
+      const labR = probe.first ? await classify(seg, sr) : null;
+      dogcheckMd = dogcheckReport(probe, { file: d.file, labDog: labR?.dog ?? null });
+      console.log(dogcheckMd);
+    } catch (e) { dogcheckMd = `**本体の dogcheck.js**: 確認スクリプトが失敗（${e?.message || e}）\n\n`; console.log(dogcheckMd); }
     for (const d of inputs) {
       const { x, sr } = readWav(d.path);
       const r = await classify(x, sr);
@@ -69,7 +84,7 @@ try {
       rows.push({ file: d.file, category: d.category, source: d.source, seconds: +(x.length / sr).toFixed(2), ...r, clusters: d.source !== 'fixtures' ? clusters : undefined, clustersMin: d.source !== 'fixtures' ? clustersMin : undefined });
     }
     const line = r => `| ${r.file} | ${r.category} | ${r.seconds}s | **${r.label}** | ${(r.dog * 100).toFixed(0)}% | ${(r.dogMean * 100).toFixed(0)}% | ${(r.dogSum * 100).toFixed(0)}% | ${clusterCell(r.clusters)} | ${clusterCell(r.clustersMin?.[3])} | ${r.top.slice(0, 3).map(t => `${t.name} ${(t.score * 100).toFixed(0)}%`).join(', ')} | ${r.ms} |`;
-    summary = `### YAMNet 試作の結果（tfjs ${lab.tf}）\n\n${thresholdReport(rows)}${clusterReport(rows)}${minSecReport(rows)}| ファイル | 種類 | 長さ | 判定 | 犬らしさ(最大) | 犬らしさ(平均) | 犬系の合計 | 塊ごと(最大) | 塊を最低 3 秒に | 上位3クラス | ms |\n|---|---|---|---|---|---|---|---|---|---|---|\n${rows.map(line).join('\n')}\n`;
+    summary = `### YAMNet 試作の結果（tfjs ${lab.tf}）\n\n${dogcheckMd}${thresholdReport(rows)}${clusterReport(rows)}${minSecReport(rows)}| ファイル | 種類 | 長さ | 判定 | 犬らしさ(最大) | 犬らしさ(平均) | 犬系の合計 | 塊ごと(最大) | 塊を最低 3 秒に | 上位3クラス | ms |\n|---|---|---|---|---|---|---|---|---|---|---|\n${rows.map(line).join('\n')}\n`;
     console.log(summary);
     fs.mkdirSync(path.join(here, 'out'), { recursive: true });
     fs.writeFileSync(path.join(here, 'out/yamnet-result.json'), JSON.stringify({ tfjs: lab.tf, at: new Date().toISOString(), rows }, null, 1));
