@@ -16,9 +16,10 @@ app/                 PWA 本体（静的サイト。このフォルダをその�
   js/classify.js     判定（ルール + kNN）、育成度
   js/store.js        保存（localStorage。特徴量と正解だけ。音声は保存しない）
   js/mic.js          マイク常時監視 → 吠えの塊を切り出す
-  js/dogcheck.js     犬の声チェック（YAMNet。**既定オフ**。`?dogcheck=on` で試せる。オンのときだけ監視開始後に裏で tfjs とモデルを読む）
+  js/dogcheck.js     犬の声チェック（YAMNet。**既定オフ**。`?dogcheck=on` で試せる。オンのときだけ監視開始後に裏で tfjs とモデルを読む。
+                     犬らしさが低い音は判定を薄く表示して「犬の声ではないかも」と添える。教えれば通常どおり覚える）
   js/app.js          画面の配線
-  sw.js              オフライン用 service worker（更新時は VERSION を上げる）
+  sw.js              オフライン用 service worker（更新時は VERSION を上げる。外部オリジンはフォントだけキャッシュし、tfjs・モデルには触らない）
   manifest.webmanifest, icons/
   lab/yamnet.html    フェーズ2の試作: YAMNet で「犬の声か、それ以外か」（本体とは別ページ。tfjs は CDN 固定版）
 tests/

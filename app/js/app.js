@@ -113,6 +113,7 @@ function confidenceLevel(s, k) {
 // ---------- 判定の表示（ファイル／マイク共通） ----------
 function showResult(a, source) {
   resultSeq++;
+  clearNotDog();
   draw(a); renderFeat(a.feats);
   if (a.feats.n === 0) {
     renderBars(null); $('predBig').textContent = '？'; $('predConf').textContent = '鳴き声が見つかりません'; $('quote').textContent = '';
@@ -147,6 +148,8 @@ async function runFile(file) {
 
 function label(k) {
   if (!current) return;
+  // 「犬の声ではないかも」と薄くした判定でも、飼い主が教えたらその時点で犬の声として扱う（吠え回数に戻し、通常どおり保存）
+  if (current.notDog) { clearNotDog(); if (current.source === 'mic') { micBarks++; renderMicState(); } }
   samples.push({ t: Date.now(), label: k, pred: current.pred, f: current.f, src: current.source });
   saveSamples(samples);
   $('answer').classList.remove('on');
@@ -173,9 +176,12 @@ function renderRecs(k) {
   el.hidden = false;
 }
 
-// ---------- 犬の声チェック（YAMNet。既定オフ。plan #14 の実装 ②） ----------
+// ---------- 犬の声チェック（YAMNet。既定オフ。plan #14 の実装 ②・③） ----------
 // 設定 wl.dogcheck がオンのときだけ、監視を始めたあとに裏でモデルを読む。読めるまで・読めないとき・オフのときは何も変わらない。
-// いまは犬らしさを数字で添えるだけ（判定・保存は従来どおり）。「犬以外っぽい音」の扱いは次の ③。
+// 判定は待たせずに先に出し、犬らしさは届いたら数字で添える（②）。
+// 犬らしさがしきい値未満なら、出ている判定を薄くして「犬の声ではないかも」と添え、吠え回数から外す（③）。
+// 捨てはしない: 飼い主が気持ちを教えたら犬の声として通常どおり保存する（くんくん・息は YAMNet が落としやすいため）。
+function clearNotDog() { $('result').classList.remove('notdog'); $('dogNote').hidden = true; }
 function startDogCheck() {
   if (!dogcheckEnabled()) return;
   if (!dogcheck) dogcheck = new DogCheck({
@@ -196,6 +202,12 @@ async function runDogCheck(wide, sr) {
   span.id = 'dogChip';
   span.textContent = `犬らしさ ${Math.round(r.dog * 100)}%（${(r.ms / 1000).toFixed(1)}秒）`;
   $('feat').appendChild(span);
+  // ③ 犬以外っぽい音。まだ答えを待っている判定（current）にだけ掛ける。もう教えた・「わからない」を押したあとなら何もしない
+  if (!r.isDog && current && !current.notDog) {
+    current.notDog = true;
+    $('result').classList.add('notdog'); $('dogNote').hidden = false;
+    if (current.source === 'mic' && micBarks > 0) { micBarks--; renderMicState(); }
+  }
 }
 
 // ---------- マイク監視 ----------
@@ -313,4 +325,4 @@ loadRecsConfig().then(c => { recsCfg = c; });
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(e => console.warn('sw', e)));
 }
-window.__wl = { get samples() { return samples; }, analyzeSamples, predict, setRecsConfig(c) { recsCfg = c; }, get dogcheck() { return dogcheck; } }; // テスト用フック
+window.__wl = { get samples() { return samples; }, analyzeSamples, predict, setRecsConfig(c) { recsCfg = c; }, get dogcheck() { return dogcheck; }, get micBarks() { return micBarks; } }; // テスト用フック

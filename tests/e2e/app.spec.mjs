@@ -139,6 +139,31 @@ test('オフラインでも起動する（Service Worker）', async ({ page, con
   } finally { await context.setOffline(false); }
 });
 
+test('Service Worker は tfjs（jsdelivr）に手を出さず、自分のキャッシュにも入れない', async ({ page, browserName }) => {
+  test.skip(browserName !== 'chromium', '偽マイクは Chromium のみ');
+  // Service Worker が動いていて、このページを受け持っている状態にする
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.reload();
+  await page.waitForFunction(() => !!navigator.serviceWorker.controller, null, { timeout: 15000 });
+  // Service Worker が respondWith しない通信はページの通信として出るので、ここで偽の tf に差し替えられる
+  const cdn = [];
+  await page.route('https://cdn.jsdelivr.net/**', r => { cdn.push(r.request().url()); return r.fulfill({ status: 200, contentType: 'application/javascript', body: 'window.tf = { tensor1d: x => ({ dispose() {} }), loadGraphModel: async () => ({ execute: () => { const row = new Float32Array(521); row[70] = 0.9; return { shape: [1, 521], array: async () => [row], dispose() {} }; } }) };' }); });
+  await page.goto('./?dogcheck=on');
+  expect(await page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
+  await page.locator('#micBtn').click();
+  await expect.poll(() => page.evaluate(() => window.__wl.dogcheck?.state), { timeout: 15000 }).toBe('ready');
+  expect(cdn).toHaveLength(1);
+  await page.locator('#micBtn').click();
+  const keys = await page.evaluate(async () => {
+    const out = [];
+    for (const name of await caches.keys()) for (const r of await (await caches.open(name)).keys()) out.push(r.url);
+    return out;
+  });
+  expect(keys.length).toBeGreaterThan(5); // 本体は事前キャッシュされている
+  expect(keys.filter(u => /jsdelivr|tfhub|kaggle/.test(u))).toEqual([]);
+  await page.goto('./?dogcheck=off');
+});
+
 test('画面を見た感じ（スクリーンショット）', async ({ page }, testInfo) => {
   await page.screenshot({ path: path.join(shots, `${testInfo.project.name}-home.png`), fullPage: true });
   await page.emulateMedia({ colorScheme: 'dark' });
@@ -179,18 +204,20 @@ test('結果をシェア: 画像カードができる（共有シートが無い
   await expect(page.locator('#shareNote')).toContainText('Threads');
 });
 
-// ---------- 犬の声チェック（YAMNet。既定オフ。plan #14 の実装 ②） ----------
+// ---------- 犬の声チェック（YAMNet。既定オフ。plan #14 の実装 ②・③） ----------
 // 本物の tfjs・モデルはネットワークが要るので、ここでは偽の tf を返して「配線」だけを確かめる（本物の数字は lab-yamnet）。
 test.describe('犬の声チェック（既定オフ）', () => {
   test.use({ serviceWorkers: 'block' }); // page.route は Service Worker 経由の通信を拾えないため
 
-  const FAKE_TF = `window.tf = {
+  /** 犬系クラス（Bark = 70 番）に score 点を出す偽の tf */
+  const fakeTf = score => `window.tf = {
     version: { tfjs: 'fake' },
     tensor1d: x => ({ n: x.length, dispose() {} }),
     loadGraphModel: async (url, opts) => { window.__fakeTf = { url, opts, calls: 0, lens: [] }; return {
-      execute: input => { window.__fakeTf.calls++; window.__fakeTf.lens.push(input.n); const row = new Float32Array(521); row[70] = 0.93; return { shape: [1, 521], array: async () => [row], dispose() {} }; },
+      execute: input => { window.__fakeTf.calls++; window.__fakeTf.lens.push(input.n); const row = new Float32Array(521); row[70] = ${score}; return { shape: [1, 521], array: async () => [row], dispose() {} }; },
     }; },
   };`;
+  const FAKE_TF = fakeTf(0.93);
 
   test('既定では tfjs もモデルも読みに行かず、犬らしさも出ない', async ({ page, browserName }) => {
     test.skip(browserName !== 'chromium', '偽マイクは Chromium のみ');
@@ -225,6 +252,9 @@ test.describe('犬の声チェック（既定オフ）', () => {
     await expect(page.locator('#dogChip')).toContainText('犬らしさ 93%', { timeout: 30000 });
     await expect(page.locator('#feat')).toContainText('吠え');
     await expect(page.locator('#answer')).toHaveClass(/on/);
+    // 犬（0.3 以上）なら薄くしない・注記も出さない
+    await expect(page.locator('#result')).not.toHaveClass(/notdog/);
+    await expect(page.locator('#dogNote')).toBeHidden();
     await page.screenshot({ path: path.join(shots, `${testInfo.project.name}-dogcheck.png`), fullPage: true });
     // YAMNet に渡るのは 16kHz。塊の前を足すので、塊そのもの（約 1 秒）より長く、リングバッファ（6 秒）以内
     const lens = await page.evaluate(() => window.__fakeTf.lens);
@@ -242,6 +272,51 @@ test.describe('犬の声チェック（既定オフ）', () => {
     // ?dogcheck=off で戻せる
     await page.goto('./?dogcheck=off');
     expect(await page.evaluate(() => localStorage.getItem('wl.dogcheck'))).toBeNull();
+  });
+
+  test('犬らしさが低い音は薄く表示して吠え回数に入れない。教えたら通常どおり保存する（③）', async ({ page, browserName }, testInfo) => {
+    test.skip(browserName !== 'chromium', '偽マイクは Chromium のみ');
+    await page.route('https://cdn.jsdelivr.net/**', r => r.fulfill({ status: 200, contentType: 'application/javascript', body: fakeTf(0.05) }));
+    await page.goto('./?dogcheck=on');
+    await page.locator('#micBtn').click();
+    await expect.poll(() => page.evaluate(() => window.__wl.dogcheck?.state), { timeout: 15000 }).toBe('ready');
+
+    // 判定は捨てずに出したまま、薄くして注記を添える
+    await expect(page.locator('#result')).toHaveClass(/notdog/, { timeout: 30000 });
+    await expect(page.locator('#dogNote')).toBeVisible();
+    await expect(page.locator('#dogNote')).toContainText('犬の声ではないかも');
+    await expect(page.locator('#dogChip')).toContainText('犬らしさ 5%');
+    await expect(page.locator('#predBig')).not.toHaveText('── ──');
+    await expect(page.locator('#answer')).toHaveClass(/on/); // 教える入口は残す
+    await page.screenshot({ path: path.join(shots, `${testInfo.project.name}-dogcheck-notdog.png`), fullPage: true });
+    // 薄くなっている瞬間は、吠え回数に数えていない・育成ログにも何も残っていない（1 回の evaluate で同時に見る）
+    await expect.poll(() => page.evaluate(() => document.getElementById('result').classList.contains('notdog')
+      ? { barks: window.__wl.micBarks, state: document.getElementById('micState').textContent.includes('吠え '), saved: window.__wl.samples.length }
+      : null), { timeout: 30000 }).toEqual({ barks: 0, state: false, saved: 0 });
+
+    // 飼い主が教えたら「犬の声」と確定: 通常どおり保存し、薄い表示を戻し、吠え回数にも数える
+    await expect(page.locator('#result')).toHaveClass(/notdog/, { timeout: 30000 });
+    const [cls, barks, n] = await page.evaluate(() => {
+      const r = document.getElementById('result');
+      if (!r.classList.contains('notdog')) return [null, 0, 0]; // ちょうど次の吠えが来た瞬間（下でやり直す）
+      document.querySelector('#choices button[data-k="lonely"]').click();
+      return [r.className, window.__wl.micBarks, window.__wl.samples.length];
+    });
+    if (cls !== null) {
+      expect(cls).not.toMatch(/notdog/);
+      expect(barks).toBe(1);
+      expect(n).toBe(1);
+    } else {
+      await expect(page.locator('#result')).toHaveClass(/notdog/, { timeout: 30000 });
+      await page.locator('#choices button[data-k="lonely"]').click();
+    }
+    const arr = JSON.parse(await page.evaluate(() => localStorage.getItem('wanlingual.samples.v1')));
+    expect(arr).toHaveLength(1);
+    expect(arr[0].label).toBe('lonely');
+    expect(arr[0].src).toBe('mic');
+    expect(Object.keys(arr[0]).sort()).toEqual(['f', 'label', 'pred', 'src', 't']); // 保存する項目は増やしていない
+    await expect(page.locator('#hist li').first()).toContainText('さみしい');
+    await page.locator('#micBtn').click();
   });
 
   test('オンでも tfjs が読めなければ従来どおり判定する', async ({ page, browserName }) => {
