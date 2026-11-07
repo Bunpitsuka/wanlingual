@@ -51,8 +51,8 @@
 </div>
 <div class="toast" id="toast" role="status"></div>
 
-<!-- TensorFlow.js は CDN の固定バージョン（RULES.md: ライブラリは CDN から固定バージョン） -->
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js" crossorigin="anonymous"></script>
+<!-- TensorFlow.js は CDN の固定バージョン（RULES.md: ライブラリは CDN から固定バージョン）。integrity は yamnet.js の TFJS_SRI と同じ値にする -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js" integrity="sha384-vE8hbVJ4lezako5rlvE7bY0BVzWlFhZncPlckrqNwcUQpVtgbENTgZ8TBbnPjZre" crossorigin="anonymous"></script>
 <script type="module">
 import { TFJS_VERSION, YAMNET_SR, loadYamnet, classify, resampleTo16k } from './yamnet.js';
 const $ = id => document.getElementById(id);

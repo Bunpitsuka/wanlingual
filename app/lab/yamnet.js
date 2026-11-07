@@ -12,6 +12,15 @@
 import { YAMNET_CLASSES, DOG_CLASS_INDEXES } from './yamnet_classes.js';
 
 export const TFJS_VERSION = '4.22.0';
+/** tfjs を読む CDN の URL（固定バージョン。jsdelivr は npm のファイルをそのまま配る） */
+export const TFJS_URL = `https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@${TFJS_VERSION}/dist/tf.min.js`;
+/**
+ * tf.min.js の改ざん検知ハッシュ（SRI, plan #14 設計メモ 7-iii）。<script integrity> に付けると、CDN 側で中身が変わったとき
+ * ブラウザが読み込みを拒む（→ 犬の声チェックは「読めなかった」扱いで、本体は従来どおり動く）。
+ * 出し方: `npm pack @tensorflow/tfjs@4.22.0` → `openssl dgst -sha384 -binary package/dist/tf.min.js | openssl base64 -A`（2026-11-08）。
+ * CDN が同じ中身を配っているかは GitHub Actions `lab-yamnet` の `tests/lab/sri-check.mjs` が毎回確かめる。バージョンを上げるときはここも更新。
+ */
+export const TFJS_SRI = 'sha384-vE8hbVJ4lezako5rlvE7bY0BVzWlFhZncPlckrqNwcUQpVtgbENTgZ8TBbnPjZre';
 export const YAMNET_URL = 'https://tfhub.dev/google/tfjs-model/yamnet/tfjs/1';
 export const YAMNET_SR = 16000;
 export const N_CLASSES = 521;

@@ -20,15 +20,15 @@ function fakeTf(dog = 0.9) {
 }
 const make = (over = {}) => {
   const f = fakeTf(over.dog);
-  const states = [], scripts = [];
+  const states = [], scripts = [], integrities = [];
   const d = new DogCheck({
     importLab: async () => lab,
-    loadScript: async url => { scripts.push(url); },
+    loadScript: async (url, integrity) => { scripts.push(url); integrities.push(integrity); },
     getTf: () => f.tf,
     onState: s => states.push(s),
     ...over.deps,
   });
-  return { d, states, scripts, ...f };
+  return { d, states, scripts, integrities, ...f };
 };
 
 test('設定: 既定はオフ。on にしたときだけオン、off で項目ごと消える', () => {
@@ -61,14 +61,15 @@ test('URL の ?dogcheck=on / off だけが設定を変える', () => {
   assert.equal(applyUrlParam('?dogcheck=0', s), 'off');
 });
 
-test('読み込み: 固定バージョンの tfjs を jsdelivr から、モデルは TF Hub v1。読めたら ready', async () => {
-  const { d, states, scripts, seen } = make();
+test('読み込み: 固定バージョンの tfjs を jsdelivr から SRI 付きで、モデルは TF Hub v1。読めたら ready', async () => {
+  const { d, states, scripts, integrities, seen } = make();
   assert.equal(d.state, 'idle');
   assert.equal(await d.check(new Float32Array(32000), 16000), null); // 読む前は判定しない
   assert.equal(await d.load(), true);
   assert.equal(d.state, 'ready');
   assert.deepEqual(states, ['loading', 'ready']);
   assert.deepEqual(scripts, ['https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js']);
+  assert.deepEqual(integrities, [lab.TFJS_SRI]); // 改ざん検知（設計メモ 7-iii）
   assert.equal(seen.url, lab.YAMNET_URL);
   assert.deepEqual(seen.opts, { fromTFHub: true });
 });

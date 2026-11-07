@@ -120,3 +120,17 @@ test('モデル出力の中から scores（×521）を shape で見つける', (
   assert.equal(pickScores(sc), sc);
   assert.equal(pickScores([emb, mel]), null);
 });
+
+// ---------- SRI（plan #14 設計メモ 7-iii、2026-11-08） ----------
+test('tfjs の SRI: sha384 の形で、実験室 yamnet.html の <script integrity> と同じ値。URL は固定バージョン', async () => {
+  const { TFJS_SRI, TFJS_URL, TFJS_VERSION } = await import('../../app/lab/yamnet.js');
+  const fs = await import('node:fs');
+  assert.match(TFJS_SRI, /^sha384-[A-Za-z0-9+/]{64}$/);
+  assert.equal(TFJS_URL, `https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@${TFJS_VERSION}/dist/tf.min.js`);
+  const html = fs.readFileSync(new URL('../../app/lab/yamnet.html', import.meta.url), 'utf8');
+  const tag = html.match(/<script src="([^"]+tf\.min\.js)"([^>]*)>/);
+  assert.ok(tag, 'yamnet.html に tf.min.js の <script> がある');
+  assert.equal(tag[1], TFJS_URL);
+  assert.match(tag[2], new RegExp(`integrity="${TFJS_SRI.replace(/[+/]/g, m => '\\' + m)}"`));
+  assert.match(tag[2], /crossorigin="anonymous"/); // SRI には CORS が要る
+});

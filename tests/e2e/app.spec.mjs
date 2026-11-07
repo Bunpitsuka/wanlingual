@@ -2,6 +2,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fx = f => path.join(here, '../fixtures', f);
@@ -139,7 +140,7 @@ test('オフラインでも起動する（Service Worker）', async ({ page, con
   } finally { await context.setOffline(false); }
 });
 
-test('Service Worker は tfjs（jsdelivr）に手を出さず、自分のキャッシュにも入れない', async ({ page, browserName }) => {
+test('Service Worker は tfjs（jsdelivr）に手を出さず、自分のキャッシュにも入れない。中身の違う tfjs は SRI で拒む', async ({ page, browserName }) => {
   test.skip(browserName !== 'chromium', '偽マイクは Chromium のみ');
   // Service Worker が動いていて、このページを受け持っている状態にする
   await page.evaluate(() => navigator.serviceWorker.ready);
@@ -151,7 +152,10 @@ test('Service Worker は tfjs（jsdelivr）に手を出さず、自分のキャ�
   await page.goto('./?dogcheck=on');
   expect(await page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
   await page.locator('#micBtn').click();
-  await expect.poll(() => page.evaluate(() => window.__wl.dogcheck?.state), { timeout: 15000 }).toBe('ready');
+  // ここでは Service Worker が同じオリジンの lab/yamnet.js を受け持つので TFJS_SRI は本物のまま → 偽の tf は SRI（integrity）で拒まれて 'failed' になる。
+  // 通信そのものは page.route に届いている（＝Service Worker が respondWith していない）ことを cdn の件数で見る
+  await expect.poll(() => page.evaluate(() => window.__wl.dogcheck?.state), { timeout: 15000 }).toBe('failed');
+  expect(await page.evaluate(() => window.__wl.dogcheck?.error)).toContain('TensorFlow.js が読み込めません');
   expect(cdn).toHaveLength(1);
   await page.locator('#micBtn').click();
   const keys = await page.evaluate(async () => {
@@ -218,6 +222,22 @@ test.describe('犬の声チェック（既定オフ）', () => {
     }; },
   };`;
   const FAKE_TF = fakeTf(0.93);
+  const sri = body => 'sha384-' + createHash('sha384').update(body).digest('base64');
+  /**
+   * jsdelivr の代わりに偽の tf を返す。本体は <script integrity>（SRI）で本物の tf.min.js のハッシュを要求するので、
+   * 同じページが読む lab/yamnet.js の TFJS_SRI も偽の tf のハッシュに差し替える（Service Worker を止めているので同じオリジンも差し替えられる）。
+   * 戻り値: jsdelivr に出た要求の URL の配列
+   */
+  async function routeFakeTf(page, body) {
+    const cdn = [];
+    await page.route('https://cdn.jsdelivr.net/**', r => { cdn.push(r.request().url()); return r.fulfill({ status: 200, contentType: 'application/javascript', body }); });
+    await page.route('**/lab/yamnet.js', async r => {
+      const res = await r.fetch();
+      const text = (await res.text()).replace(/TFJS_SRI = '[^']+'/, `TFJS_SRI = '${sri(body)}'`);
+      await r.fulfill({ status: 200, contentType: 'application/javascript', body: text });
+    });
+    return cdn;
+  }
 
   test('既定では tfjs もモデルも読みに行かず、犬らしさも出ない', async ({ page, browserName }) => {
     test.skip(browserName !== 'chromium', '偽マイクは Chromium のみ');
@@ -236,8 +256,7 @@ test.describe('犬の声チェック（既定オフ）', () => {
 
   test('?dogcheck=on で監視を始めると裏で読み、判定に犬らしさを添える（判定・保存は従来どおり）', async ({ page, browserName }, testInfo) => {
     test.skip(browserName !== 'chromium', '偽マイクは Chromium のみ');
-    const cdn = [];
-    await page.route('https://cdn.jsdelivr.net/**', r => { cdn.push(r.request().url()); return r.fulfill({ status: 200, contentType: 'application/javascript', body: FAKE_TF }); });
+    const cdn = await routeFakeTf(page, FAKE_TF);
     await page.goto('./?dogcheck=on');
     expect(await page.evaluate(() => localStorage.getItem('wl.dogcheck'))).toBe('on');
     expect(await page.evaluate(() => window.__wl.dogcheck)).toBeNull(); // 監視を始めるまでは何も読まない
@@ -276,7 +295,7 @@ test.describe('犬の声チェック（既定オフ）', () => {
 
   test('犬らしさが低い音は薄く表示して吠え回数に入れない。教えたら通常どおり保存する（③）', async ({ page, browserName }, testInfo) => {
     test.skip(browserName !== 'chromium', '偽マイクは Chromium のみ');
-    await page.route('https://cdn.jsdelivr.net/**', r => r.fulfill({ status: 200, contentType: 'application/javascript', body: fakeTf(0.05) }));
+    await routeFakeTf(page, fakeTf(0.05));
     await page.goto('./?dogcheck=on');
     await page.locator('#micBtn').click();
     await expect.poll(() => page.evaluate(() => window.__wl.dogcheck?.state), { timeout: 15000 }).toBe('ready');
@@ -317,6 +336,47 @@ test.describe('犬の声チェック（既定オフ）', () => {
     expect(Object.keys(arr[0]).sort()).toEqual(['f', 'label', 'pred', 'src', 't']); // 保存する項目は増やしていない
     await expect(page.locator('#hist li').first()).toContainText('さみしい');
     await page.locator('#micBtn').click();
+  });
+
+  test('設定のトグルでオン／オフできる。監視中にオンにすると裏で読み、オフにすると以後の判定に掛けない（④）', async ({ page, browserName }, testInfo) => {
+    test.skip(browserName !== 'chromium', '偽マイクは Chromium のみ');
+    const cdn = await routeFakeTf(page, FAKE_TF);
+    await page.reload();
+    const toggle = page.locator('#dogcheckToggle');
+    await expect(toggle).not.toBeChecked();            // 既定はオフ
+    await expect(page.locator('#dogcheckState')).toHaveText('');
+    expect(await page.evaluate(() => localStorage.getItem('wl.dogcheck'))).toBeNull();
+
+    // 監視を始めてから、トグルでオンにする → その場で読み込みが始まる
+    await page.locator('#micBtn').click();
+    await expect(page.locator('#micState')).toContainText('監視中', { timeout: 10000 });
+    await page.locator('#settings .switch').click();
+    await expect(toggle).toBeChecked();
+    expect(await page.evaluate(() => localStorage.getItem('wl.dogcheck'))).toBe('on');
+    // （トーストは「オンにしました」→ 偽の tf が一瞬で読めて「準備ができました」に変わるので、ここでは見ない）
+    await expect.poll(() => page.evaluate(() => window.__wl.dogcheck?.state), { timeout: 15000 }).toBe('ready');
+    await expect(page.locator('#dogcheckState')).toContainText('準備できています');
+    expect(cdn).toHaveLength(1);
+    await expect(page.locator('#dogChip')).toContainText('犬らしさ 93%', { timeout: 30000 });
+    await page.screenshot({ path: path.join(shots, `${testInfo.project.name}-settings.png`), fullPage: true });
+
+    // トグルでオフ → 設定は項目ごと消え、以後の判定には犬らしさを添えない
+    await page.locator('#settings .switch').click();
+    await expect(toggle).not.toBeChecked();
+    expect(await page.evaluate(() => localStorage.getItem('wl.dogcheck'))).toBeNull();
+    await expect(page.locator('#dogcheckState')).toHaveText('');
+    expect(await page.evaluate(() => window.__wl.dogcheck)).toBeNull();
+    await expect.poll(() => page.evaluate(() => document.getElementById('dogChip') === null), { timeout: 30000 }).toBe(true); // 次の判定で消える
+    await page.waitForTimeout(1500);
+    await expect(page.locator('#dogChip')).toHaveCount(0);
+    await page.locator('#micBtn').click();
+
+    // URL の ?dogcheck=on はトグルにも反映される（同じ設定）
+    await page.goto('./?dogcheck=on');
+    await expect(toggle).toBeChecked();
+    await expect(page.locator('#dogcheckState')).toContainText('監視を始めると');
+    await page.goto('./?dogcheck=off');
+    await expect(toggle).not.toBeChecked();
   });
 
   test('オンでも tfjs が読めなければ従来どおり判定する', async ({ page, browserName }) => {

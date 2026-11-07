@@ -24,7 +24,7 @@ export function setEnabled(on, storage) {
   try { const s = storageOf(storage); if (!s) return false; if (on) s.setItem(KEY, 'on'); else s.removeItem(KEY); return true; } catch { return false; }
 }
 /**
- * URL の `?dogcheck=on` / `?dogcheck=off` を設定に反映する（設定画面のトグル＝④ ができるまでの、実機で試すための入口）。
+ * URL の `?dogcheck=on` / `?dogcheck=off` を設定に反映する（画面の「設定」トグル＝④ と同じ設定を変える。URL を送るだけで実機で試せる入口として残す）。
  * 戻り値: 'on' | 'off' | null（指定なし・それ以外の値は何もしない）
  */
 export function applyUrlParam(search, storage) {
@@ -35,14 +35,18 @@ export function applyUrlParam(search, storage) {
   return null;
 }
 
-/** <script> を足して読み込む（ブラウザ専用）。tf が既に読まれていれば足さない */
-function loadScript(url) {
+/**
+ * <script> を足して読み込む（ブラウザ専用）。tf が既に読まれていれば足さない。
+ * integrity（SRI）を付けるので、CDN の中身がハッシュと違えばブラウザが拒んで onerror になる（＝読めなかった扱い。本体は従来どおり動く）。
+ */
+function loadScript(url, integrity) {
   return new Promise((ok, ng) => {
     if (globalThis.tf) return ok();
     const s = document.createElement('script');
     s.src = url; s.async = true; s.crossOrigin = 'anonymous';
+    if (integrity) s.integrity = integrity;
     s.onload = () => ok();
-    s.onerror = () => { s.remove(); ng(new Error('TensorFlow.js が読み込めません（CDN に届かないか、オフライン）')); };
+    s.onerror = () => { s.remove(); ng(new Error('TensorFlow.js が読み込めません（CDN に届かないか、オフラインか、ファイルの中身が想定と違う）')); };
     document.head.appendChild(s);
   });
 }
@@ -51,7 +55,7 @@ export class DogCheck {
   /**
    * @param {object} [deps] テスト用に差し替えられる入口
    * @param {()=>Promise<object>} [deps.importLab]  実験室の純粋関数（app/lab/yamnet.js）を読む
-   * @param {(url:string)=>Promise<void>} [deps.loadScript]  tfjs の <script> を足す
+   * @param {(url:string, integrity?:string)=>Promise<void>} [deps.loadScript]  tfjs の <script> を足す（integrity は SRI のハッシュ）
    * @param {()=>any} [deps.getTf]  読み込んだ tf（グローバル）を返す
    * @param {(state:string)=>void} [deps.onState]  状態が変わったとき（'loading' | 'ready' | 'failed'）
    */
@@ -82,7 +86,7 @@ export class DogCheck {
     this._loading = (async () => {
       try {
         const lab = await this.importLab();
-        await this.loadScript(`https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@${lab.TFJS_VERSION}/dist/tf.min.js`);
+        await this.loadScript(lab.TFJS_URL || `https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@${lab.TFJS_VERSION}/dist/tf.min.js`, lab.TFJS_SRI);
         const tf = this.getTf();
         const model = await lab.loadYamnet(tf);
         this.lab = lab; this.tf = tf; this.model = model;

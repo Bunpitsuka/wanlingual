@@ -16,8 +16,8 @@ app/                 PWA 本体（静的サイト。このフォルダをその�
   js/classify.js     判定（ルール + kNN）、育成度
   js/store.js        保存（localStorage。特徴量と正解だけ。音声は保存しない）
   js/mic.js          マイク常時監視 → 吠えの塊を切り出す
-  js/dogcheck.js     犬の声チェック（YAMNet。**既定オフ**。`?dogcheck=on` で試せる。オンのときだけ監視開始後に裏で tfjs とモデルを読む。
-                     犬らしさが低い音は判定を薄く表示して「犬の声ではないかも」と添える。教えれば通常どおり覚える）
+  js/dogcheck.js     犬の声チェック（YAMNet。**既定オフ**。画面下の「設定」トグルか `?dogcheck=on` でオン。オンのときだけ監視開始後に裏で
+                     tfjs（SRI 付き）とモデルを読む。犬らしさが低い音は判定を薄く表示して「犬の声ではないかも」と添える。教えれば通常どおり覚える）
   js/app.js          画面の配線
   sw.js              オフライン用 service worker（更新時は VERSION を上げる。外部オリジンはフォントだけキャッシュし、tfjs・モデルには触らない）
   manifest.webmanifest, icons/
@@ -30,7 +30,8 @@ tests/
                      tests/lab/data/ に落とす（gitignore。NC ライセンスなので検証のみ）。features-check.mjs は本体の検出器、
                      yamnet-check.mjs は YAMNet に本物の音を通して表を出す（ファイル全体、本体と同じ「吠えの塊」ごと、
                      塊を前後に広げて最低 2〜3 秒にしたもの）。
-                     dogcheck-probe.mjs は本体の dogcheck.js を本体のページの中で本物の tfjs・モデルに通す
+                     dogcheck-probe.mjs は本体の dogcheck.js を本体のページの中で本物の tfjs・モデルに通す。
+                     sri-check.mjs は CDN の tf.min.js のハッシュが app/lab/yamnet.js の TFJS_SRI と一致するか確かめる
 .github/workflows/pages.yml   main に push → GitHub Pages へ自動デプロイ
 ```
 

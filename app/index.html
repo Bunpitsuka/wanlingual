@@ -105,6 +105,16 @@
     <p class="note">学習データ（特徴量と正解だけ）はこの端末に保存されます。音声そのものは保存も送信もしません。判定ルールは動物行動学の知見（Pongrácz ら 2005 など）を単純化したもので、本物の翻訳ではありません。</p>
     <p class="note"><a href="./lab/yamnet.html">実験室: 犬の声かどうかを見分ける試作（YAMNet）</a> — フェーズ2の下調べ。別ページで動きます。</p>
   </section>
+
+  <section class="panel settings" id="settings">
+    <h2>設定</h2>
+    <label class="switch">
+      <input type="checkbox" id="dogcheckToggle">
+      <span class="knob" aria-hidden="true"></span>
+      <span class="text"><b>犬の声チェック（試験中）</b><small>人の声や物音を「吠え」と間違えにくくします。マイク監視を始めたときに裏で読み込み、初回だけ約 15MB（Wi-Fi 推奨）。犬の声ではなさそうな判定は薄く表示します。音声は端末の外に出ません。</small></span>
+    </label>
+    <p class="note" id="dogcheckState"></p>
+  </section>
 </div>
 <div class="toast" id="toast" role="status"></div>
 <script type="module" src="./js/app.js"></script>

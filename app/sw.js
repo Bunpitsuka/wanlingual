@@ -1,7 +1,7 @@
 // sw.js — オフライン用。アプリ本体は事前キャッシュ、フォントはキャッシュしつつネットワーク優先。
 // それ以外の外部オリジン（犬の声チェックの tfjs＝jsdelivr、YAMNet のモデル＝tfhub / kaggle、約 15MB）には手を出さない:
 // ここのキャッシュに入れると VERSION を上げるたびに消えて読み直しになるので、ブラウザ自身の HTTP キャッシュに任せる。
-const VERSION = 'wl-v9';
+const VERSION = 'wl-v10';
 /** Service Worker のキャッシュに入れてよい外部オリジン（フォントだけ） */
 const CACHEABLE_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
 const SHELL = ['./', './index.html', './css/app.css', './js/app.js', './js/features.js', './js/classify.js', './js/store.js', './js/mic.js', './js/share.js', './js/recs.js', './js/mascot.js', './js/dogcheck.js', './affiliate.json', './manifest.webmanifest', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png'];

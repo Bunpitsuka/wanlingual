@@ -6,7 +6,7 @@ import { Listener, platformNotes } from './mic.js';
 import { share } from './share.js';
 import { loadConfig as loadRecsConfig, links as recLinks, DISCLOSURE } from './recs.js';
 import { mascotSvg } from './mascot.js';
-import { DogCheck, isEnabled as dogcheckEnabled, applyUrlParam as dogcheckUrlParam } from './dogcheck.js';
+import { DogCheck, isEnabled as dogcheckEnabled, setEnabled as setDogcheckEnabled, applyUrlParam as dogcheckUrlParam } from './dogcheck.js';
 
 const $ = id => document.getElementById(id);
 let samples = loadSamples();
@@ -188,15 +188,40 @@ function startDogCheck() {
     onState: s => {
       if (s === 'ready') toast('犬の声チェックの準備ができました');
       else if (s === 'failed') toast('犬の声チェックは読み込めませんでした（判定はこれまでどおり動きます）');
+      renderDogcheckState();
     },
   });
   dogcheck.load();
+  renderDogcheckState();
+}
+// ④ 設定のトグル。URL の ?dogcheck=on/off と同じ設定（localStorage wl.dogcheck）を変える。既定はオフ
+function renderDogcheckState() {
+  const on = dogcheckEnabled();
+  $('dogcheckToggle').checked = on;
+  const el = $('dogcheckState');
+  if (!on) { el.textContent = ''; return; }
+  const s = dogcheck?.state;
+  el.textContent = s === 'ready' ? '準備できています。犬らしさは判定のあとに「犬らしさ ◯%」と出ます。'
+    : s === 'loading' ? '読み込んでいます…（初回だけ時間がかかります）'
+    : s === 'failed' ? '読み込めませんでした（電波のあるところで監視を始め直すと、もう一度読みます）。判定はこれまでどおり動きます。'
+    : 'オン。マイク監視を始めると裏で読み込みます。';
+}
+function toggleDogCheck(on) {
+  if (!setDogcheckEnabled(on)) { toast('この端末では設定を保存できませんでした'); renderDogcheckState(); return; }
+  if (on) {
+    if (listener?.running) { startDogCheck(); toast('犬の声チェックをオンにしました。読み込んでいます…'); }
+    else toast('犬の声チェックをオンにしました。監視を始めると読み込みます');
+  } else {
+    dogcheck = null; // 以後の判定には掛けない（出ている判定はそのまま）。読み込み済みの tf はページを閉じるまで残る
+    toast('犬の声チェックをオフにしました');
+  }
+  renderDogcheckState();
 }
 async function runDogCheck(wide, sr) {
   if (!dogcheck || !wide) return;
-  const seq = resultSeq;
-  const r = await dogcheck.check(wide, sr);
-  if (!r || seq !== resultSeq) return; // 判定できなかった、または次の判定に進んでいた
+  const seq = resultSeq, d = dogcheck;
+  const r = await d.check(wide, sr);
+  if (!r || seq !== resultSeq || d !== dogcheck) return; // 判定できなかった、次の判定に進んでいた、または途中で設定をオフにした
   if (current) current.dog = r;
   const span = document.createElement('span');
   span.id = 'dogChip';
@@ -317,8 +342,9 @@ $('reset').addEventListener('click', () => {
   samples = []; saveSamples(samples); renderGrowth(); renderHist(); resetArmed = false; $('reset').textContent = 'リセット'; toast('リセットしました');
 });
 
-dogcheckUrlParam(location.search); // ?dogcheck=on / off（実機で試すための入口。既定はオフ）
-draw(null); renderBars(null); renderGrowth(); renderHist(); renderNotes(); setMicUI(false);
+dogcheckUrlParam(location.search); // ?dogcheck=on / off（URL を送るだけで実機で試せる入口。設定のトグルと同じ項目を変える。既定はオフ）
+$('dogcheckToggle').addEventListener('change', e => toggleDogCheck(e.target.checked));
+draw(null); renderBars(null); renderGrowth(); renderHist(); renderNotes(); setMicUI(false); renderDogcheckState();
 loadRecsConfig().then(c => { recsCfg = c; });
 
 // PWA

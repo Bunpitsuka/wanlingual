@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['app/lab/**', 'tests/lab/**', '.github/workflows/lab-yamnet.yml']
+    paths: ['app/lab/**', 'app/js/dogcheck.js', 'tests/lab/**', '.github/workflows/lab-yamnet.yml']
 permissions:
   contents: read
 jobs:
@@ -25,6 +25,8 @@ jobs:
         run: node tests/lab/fetch-data.mjs
       - name: 本体の吠え検出・ルールに本物の音を通す
         run: node tests/lab/features-check.mjs
+      - name: tfjs の SRI（改ざん検知ハッシュ）が CDN の中身と一致するか
+        run: node tests/lab/sri-check.mjs
       - name: YAMNet に通す（犬らしさ、しきい値表）
         run: node tests/lab/yamnet-check.mjs
       - uses: actions/upload-artifact@v4
