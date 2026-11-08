@@ -13,7 +13,7 @@ app/                 PWA 本体（静的サイト。このフォルダをその�
   index.html         画面
   css/app.css        デザイン（LCD風の緑パネル、DotGothic16 / Zen Kaku Gothic New、ライト／ダーク）
   js/features.js     特徴量抽出（吠え検出、ピッチ、スペクトル重心）
-  js/classify.js     判定（ルール + kNN）、育成度
+  js/classify.js     判定（ルール + kNN）、判定の「なぜ」（効いた特徴を言葉に）、育成度
   js/store.js        保存（localStorage。特徴量と正解だけ。音声は保存しない）
   js/mic.js          マイク常時監視 → 吠えの塊を切り出す
   js/dogcheck.js     犬の声チェック（YAMNet。**既定オフ**。画面下の「設定」トグルか `?dogcheck=on` でオン。オンのときだけ監視開始後に裏で

@@ -1,6 +1,6 @@
 // app.js — 画面の配線。解析は features.js、判定は classify.js、保存は store.js、マイクは mic.js。
 import { analyzeSamples, mixdown } from './features.js';
-import { CATS, CAT, predict, top, growth, tally } from './classify.js';
+import { CATS, CAT, predict, top, growth, tally, explain } from './classify.js';
 import { loadSamples, saveSamples, loadDogName, saveDogName, loadOwnerName, saveOwnerName, exportJSON, importJSON } from './store.js';
 import { Listener, platformNotes } from './mic.js';
 import { share } from './share.js';
@@ -64,6 +64,12 @@ const fmt = (v, u, d = 0) => v > 0 ? v.toFixed(d) + u : '—';
 function renderFeat(f) {
   $('feat').innerHTML = f ? `<span>吠え ${f.n}回</span><span>長さ ${fmt(f.dur * 1000, 'ms')}</span><span>間隔 ${f.n >= 2 ? fmt(f.gap * 1000, 'ms') : '—'}</span><span>ピッチ ${fmt(f.f0, 'Hz')}</span><span>明るさ ${fmt(f.cent, 'Hz')}</span>` : '';
 }
+/** 判定の「なぜ」（plan #22）。効いた特徴を 1〜3 個。決め手が無ければそう言う（6 択の推測なので迷うのが普通） */
+function renderWhy(reasons) {
+  const el = $('why');
+  if (!reasons) { el.textContent = ''; return; }
+  el.innerHTML = '<b>こう見ました:</b>' + (reasons.length ? reasons.map(r => `<span>${r}</span>`).join('・') : 'はっきりした決め手はなく、迷っています');
+}
 function renderChoices(predK) {
   const el = $('choices'); el.innerHTML = '';
   for (const c of CATS) {
@@ -116,7 +122,7 @@ function showResult(a, source) {
   clearNotDog();
   draw(a); renderFeat(a.feats);
   if (a.feats.n === 0) {
-    renderBars(null); $('predBig').textContent = '？'; $('predConf').textContent = '鳴き声が見つかりません'; $('quote').textContent = '';
+    renderBars(null); $('predBig').textContent = '？'; $('predConf').textContent = '鳴き声が見つかりません'; $('quote').textContent = ''; renderWhy(null);
     return false;
   }
   const s = predict(a.feats, samples); renderBars(s); const c = top(s);
@@ -125,6 +131,7 @@ function showResult(a, source) {
   const lvl = confidenceLevel(s, c.k);
   $('predConf').innerHTML = `たぶん ${Math.round(s[c.k] * 100)}%（推測です）<span class="lvl ${lvl.cls}">自信 ${lvl.label}</span>`;
   $('quote').textContent = c.line(dog, owner);
+  renderWhy(explain(a.feats, c.k, samples));
   current = { f: a.feats, pred: c.k, source };
   last = { f: a.feats, pred: c.k, conf: s[c.k], quote: c.line(dog, owner) };
   $('sharebox').hidden = true; $('recs').hidden = true;

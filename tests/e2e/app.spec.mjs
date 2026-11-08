@@ -34,6 +34,12 @@ test('録音ファイル → 判定 → 正解を教える → LV.1 → 再読�
   await expect(page.locator('#predBig')).not.toHaveText('？');
   await expect(page.locator('#predConf')).toContainText('推測');
   await expect(page.locator('#predConf .lvl')).toContainText('自信');
+  // 判定の「なぜ」（plan #22）: 効いた特徴を短く 1〜3 個。合成 4 連吠えは間隔か短さか回数が理由に出る
+  await expect(page.locator('#why')).toBeVisible();
+  await expect(page.locator('#why')).toContainText('こう見ました');
+  expect(await page.locator('#why span').count()).toBeGreaterThanOrEqual(1);
+  expect(await page.locator('#why span').count()).toBeLessThanOrEqual(3);
+  await expect(page.locator('#why')).toContainText(/間隔|短い声|回数/);
   await expect(page.locator('#guide')).toBeHidden();
   await expect(page.locator('#feat')).toContainText('吠え 4回');
   await expect(page.locator('#answer')).toHaveClass(/on/);
@@ -66,12 +72,16 @@ test('無音ファイルは「？」で記録しない', async ({ page }) => {
   await expect(page.locator('#predBig')).toHaveText('？', { timeout: 15000 });
   await expect(page.locator('#status')).toContainText('近く');
   await expect(page.locator('#answer')).not.toHaveClass(/on/);
+  await expect(page.locator('#why')).toBeHidden(); // 鳴き声が無ければ「なぜ」も出ない
 });
 
 test('5回教えると「子犬」になる', async ({ page }) => {
   for (let i = 0; i < 5; i++) {
     await page.locator('#file').setInputFiles(fx(i % 2 ? 'howl.wav' : 'bark4.wav'));
     await expect(page.locator('#answer')).toHaveClass(/on/, { timeout: 15000 });
+    // 教えた声が 3 件以上になると、「なぜ」に「教えてもらった似た声 ◯件のうち ◯件が…」が足される（kNN の根拠）
+    if (i >= 3) await expect(page.locator('#why')).toContainText('教えてもらった似た声');
+    else await expect(page.locator('#why')).not.toContainText('似た声');
     await page.locator(`#choices button[data-k="${i % 2 ? 'lonely' : 'demand'}"]`).click();
     await expect(page.locator('#answer')).not.toHaveClass(/on/);
   }
