@@ -7,6 +7,7 @@ import { share } from './share.js';
 import { loadConfig as loadRecsConfig, links as recLinks, DISCLOSURE } from './recs.js';
 import { mascotSvg } from './mascot.js';
 import { DogCheck, isEnabled as dogcheckEnabled, setEnabled as setDogcheckEnabled, applyUrlParam as dogcheckUrlParam } from './dogcheck.js';
+import { utteranceOptions } from './voice.js';
 
 const $ = id => document.getElementById(id);
 let samples = loadSamples();
@@ -315,9 +316,20 @@ $('micBtn').addEventListener('click', toggleMic);
 $('dogName').value = loadDogName(); $('ownerName').value = loadOwnerName();
 $('dogName').addEventListener('change', () => saveDogName($('dogName').value.trim() || 'モカ'));
 $('ownerName').addEventListener('change', () => saveOwnerName($('ownerName').value.trim() || '飼い主'));
+// 読み上げ（plan #22）: 端末にある日本語の声を選び、気持ちごとに高さ・速さを少し変える（voice.js）。声の一覧は端末によって遅れて届く
+let voices = [];
+function refreshVoices() { try { voices = speechSynthesis.getVoices() || []; } catch { voices = []; } }
+if ('speechSynthesis' in window) { refreshVoices(); try { speechSynthesis.addEventListener('voiceschanged', refreshVoices); } catch {} }
 $('speak').addEventListener('click', () => {
   const t = $('quote').textContent; if (!t || !('speechSynthesis' in window)) return;
-  try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(t); u.lang = 'ja-JP'; u.pitch = 1.4; u.rate = 1.05; speechSynthesis.speak(u); } catch {}
+  try {
+    if (!voices.length) refreshVoices();
+    const o = utteranceOptions(last?.pred, voices);
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(t);
+    u.lang = o.lang; u.pitch = o.pitch; u.rate = o.rate; if (o.voice) u.voice = o.voice;
+    speechSynthesis.speak(u);
+  } catch {}
 });
 $('share').addEventListener('click', async () => {
   if (!last) return;

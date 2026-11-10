@@ -3,6 +3,8 @@ import { test, expect } from '@playwright/test';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import { CATS } from '../../app/js/classify.js';
+import { TONES } from '../../app/js/voice.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fx = f => path.join(here, '../fixtures', f);
@@ -216,6 +218,38 @@ test('結果をシェア: 画像カードができる（共有シートが無い
   expect(src.startsWith('data:image/png;base64,')).toBeTruthy();
   expect(src.length).toBeGreaterThan(20000);
   await expect(page.locator('#shareNote')).toContainText('Threads');
+});
+
+test('セリフの読み上げ: 日本語の声を選び、判定の気持ちに合わせた高さ・速さで speak する（plan #22）', async ({ page }) => {
+  // 本物の speechSynthesis は端末の声に依存するので、偽物に差し替えて「何を渡したか」だけを確かめる
+  await page.addInitScript(() => {
+    window.__spoken = [];
+    const voices = [
+      { name: 'Samantha', lang: 'en-US', localService: true, default: true },
+      { name: 'Google 日本語', lang: 'ja-JP', localService: false, default: false },
+      { name: 'Kyoko', lang: 'ja-JP', localService: true, default: false },
+    ];
+    window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; this.lang = ''; this.pitch = 1; this.rate = 1; this.voice = null; } };
+    Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: {
+      getVoices: () => voices, cancel() {}, addEventListener() {},
+      speak(u) { window.__spoken.push({ text: u.text, lang: u.lang, pitch: u.pitch, rate: u.rate, voice: u.voice?.name }); },
+    } });
+  });
+  await page.reload();
+  await page.locator('#file').setInputFiles(fx('bark4.wav'));
+  await expect(page.locator('#answer')).toHaveClass(/on/, { timeout: 15000 });
+  const quote = await page.locator('#quote').textContent();
+  const predLabel = await page.locator('#predBig').textContent();
+  await page.locator('#speak').click();
+  const spoken = await page.evaluate(() => window.__spoken);
+  expect(spoken).toHaveLength(1);
+  expect(spoken[0].text).toBe(quote);
+  expect(spoken[0].lang).toBe('ja-JP');
+  expect(spoken[0].voice).toBe('Kyoko'); // 端末内の日本語の声が、ネットの声・英語の既定の声より優先される
+  const k = CATS.find(c => c.label === predLabel).k;
+  expect(spoken[0].pitch).toBe(TONES[k].pitch);
+  expect(spoken[0].rate).toBe(TONES[k].rate);
+  expect(spoken[0].pitch).not.toBe(1.4); // 従来の固定値（1.4 / 1.05）ではなく、気持ちごとの値になっている
 });
 
 // ---------- 犬の声チェック（YAMNet。既定オフ。plan #14 の実装 ②・③） ----------
