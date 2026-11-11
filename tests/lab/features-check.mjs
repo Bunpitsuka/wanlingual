@@ -13,6 +13,7 @@ import { analyzeSamples } from '../../app/js/features.js';
 import { rules, top, CAT } from '../../app/js/classify.js';
 import { readWav } from './wav.mjs';
 import { listData } from './fetch-data.mjs';
+import { eventDistReport } from './report.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const data = listData();
@@ -23,7 +24,8 @@ const rows = data.map(d => {
   const a = analyzeSamples(x, sr);
   const f = a.feats;
   const r = f.n ? rules(f) : null;
-  return { ...d, path: undefined, sr, seconds: +(x.length / sr).toFixed(2), n: f.n, dur: +f.dur.toFixed(3), gap: +f.gap.toFixed(3), f0: Math.round(f.f0), cent: Math.round(f.cent), gapCv: +f.gapCv.toFixed(2), peak: +a.peak.toFixed(3), top: r ? top(r).k : null, topP: r ? +Math.max(...Object.values(r)).toFixed(2) : null };
+  const events = a.events.map(e => ({ start: +e.start.toFixed(3), dur: +e.dur.toFixed(3), f0: Math.round(e.f0), cent: Math.round(e.cent) }));
+  return { ...d, path: undefined, sr, seconds: +(x.length / sr).toFixed(2), events, n: f.n, dur: +f.dur.toFixed(3), gap: +f.gap.toFixed(3), f0: Math.round(f.f0), cent: Math.round(f.cent), gapCv: +f.gapCv.toFixed(2), peak: +a.peak.toFixed(3), top: r ? top(r).k : null, topP: r ? +Math.max(...Object.values(r)).toFixed(2) : null };
 });
 
 const pct = (a, b) => b ? `${a}/${b}（${Math.round(a / b * 100)}%）` : '—';
@@ -44,6 +46,7 @@ for (const r of dd) topCount[r.top] = (topCount[r.top] || 0) + 1;
 md += `- ルールだけの判定の内訳（犬、正解ラベル無し）: ${Object.entries(topCount).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${CAT[k]?.label ?? k} ${v}`).join('、')}\n\n`;
 md += `| ファイル | 種類 | 回数 | 長さ(ms) | 間隔(ms) | f0(Hz) | cent(Hz) | gapCv | ルール判定 |\n|---|---|---|---|---|---|---|---|---|\n`;
 md += rows.map(r => `| ${r.file} | ${r.category} | ${r.n} | ${Math.round(r.dur * 1000)} | ${r.n >= 2 ? Math.round(r.gap * 1000) : '—'} | ${r.f0 || '—'} | ${r.cent || '—'} | ${r.n >= 3 ? r.gapCv : '—'} | ${r.top ? `${CAT[r.top].label} ${Math.round(r.topP * 100)}%` : '—'} |`).join('\n') + '\n';
+md += eventDistReport(rows); // CC0 5 本があれば（Actions では届く）、声 1 回ごとの長さ・間隔の分布を足す
 console.log(md);
 fs.mkdirSync(path.join(here, 'out'), { recursive: true });
 fs.writeFileSync(path.join(here, 'out/features-result.json'), JSON.stringify({ at: new Date().toISOString(), rows }, null, 1));

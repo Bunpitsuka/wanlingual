@@ -8,6 +8,7 @@
     "serve": "python3 -m http.server 4173 --directory app",
     "test:unit": "node --test tests/unit/*.test.mjs",
     "test:e2e": "playwright test -c tests/e2e/playwright.config.mjs",
+    "og": "node tools/og-image.mjs",
     "test": "npm run test:unit && npm run test:e2e"
   },
   "devDependencies": {

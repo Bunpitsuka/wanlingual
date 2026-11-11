@@ -21,7 +21,7 @@ app/                 PWA 本体（静的サイト。このフォルダをその�
   js/voice.js        セリフの読み上げ: 端末にある日本語の声を選び、気持ちごとに高さ・速さを少し変える（声はネットから取らない）
   js/app.js          画面の配線
   sw.js              オフライン用 service worker（更新時は VERSION を上げる。外部オリジンはフォントだけキャッシュし、tfjs・モデルには触らない）
-  manifest.webmanifest, icons/
+  manifest.webmanifest, icons/   OGP 画像 icons/og.png は `npm run og`（tools/og-image.mjs）で作り直す
   lab/yamnet.html    フェーズ2の試作: YAMNet で「犬の声か、それ以外か」（本体とは別ページ。tfjs は CDN 固定版）
 tests/
   unit/              node --test（特徴量・判定・育成度）
@@ -33,6 +33,7 @@ tests/
                      塊を前後に広げて最低 2〜3 秒にしたもの）。
                      dogcheck-probe.mjs は本体の dogcheck.js を本体のページの中で本物の tfjs・モデルに通す。
                      sri-check.mjs は CDN の tf.min.js のハッシュが app/lab/yamnet.js の TFJS_SRI と一致するか確かめる
+tools/og-image.mjs   OGP 画像（app/icons/og.png）の生成。mascot.js の絵と本体の色・フォントで HTML を組み、Playwright の Chromium で撮る
 .github/workflows/pages.yml   main に push → GitHub Pages へ自動デプロイ
 ```
 

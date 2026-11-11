@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { pickEsc50, NON_DOG, PER_CLASS } from '../lab/fetch-data.mjs';
-import { thresholdReport, clusterReport, minSecReport, clusterCell } from '../lab/report.mjs';
+import { thresholdReport, clusterReport, minSecReport, clusterCell, eventDistReport } from '../lab/report.mjs';
 
 const csv = ['filename,fold,target,category,esc10,src_file,take',
   ...Array.from({ length: 45 }, (_, i) => `${5 - (i % 5)}-${1000 + i}-A-0.wav,1,0,dog,True,${1000 + i},A`),
@@ -81,4 +81,22 @@ test('dogcheckReport: 本体 dogcheck.js を本物のモデルに通した結果
   assert.match(dogcheckReport({ ...ok, first: { ...ok.first, isDog: false, dog: 0.02 } }, { file: 'a.wav' }), /犬らしさ 2%、犬以外っぽい/);
   const ng = dogcheckReport({ state: 'failed', error: 'TensorFlow.js が読み込めません', loadMs: 30, first: null, second: null });
   assert.match(ng, /読み込めず（state: failed、TensorFlow\.js が読み込めません）/);
+});
+
+test('CC0 の声 1 回ごとの長さ・間隔の分布: 中央値・25–75%・境目を超える割合が出る。CC0 が無ければ空', () => {
+  const ev = (start, dur) => ({ start, dur });
+  const rows = [
+    // くんくん 相当: 1 回が長め（0.8 秒）で間隔が広い
+    { file: 'whimper.wav', category: 'dog(cc0)', source: 'CC0', seconds: 10, events: [ev(0, 0.8), ev(2, 0.9), ev(4, 0.5), ev(6, 1.2)] },
+    // 吠え 相当: 短くて間隔が短い
+    { file: 'bark.wav', category: 'dog(cc0)', source: 'CC0', seconds: 5, events: [ev(0, 0.15), ev(0.4, 0.15), ev(0.8, 0.2)] },
+    { file: 'nothing.wav', category: 'dog(cc0)', source: 'CC0', seconds: 3, events: [] },
+    { file: '1-100032-A-0.wav', category: 'dog', source: 'ESC-50', seconds: 5, events: [ev(0, 0.15)] }, // ESC-50 は表に出さない
+  ];
+  const md = eventDistReport(rows);
+  assert.match(md, /\| whimper\.wav \| 10 \| 4 \| 900（800–1200） \| 75% \| 25% \| 1200 \| 1200（1100–1500） \| 0% \| 100% \|/);
+  assert.match(md, /\| bark\.wav \| 5 \| 3 \| 150（150–200） \| 0% \| 100% \| 200 \| 250（250–250） \| 100% \| 0% \|/);
+  assert.match(md, /\| nothing\.wav \| 3 \| 0 \| — \| — \| — \| — \| — \| — \| — \|/);
+  assert.doesNotMatch(md, /1-100032/);
+  assert.equal(eventDistReport(rows.filter(r => r.source !== 'CC0')), '');
 });

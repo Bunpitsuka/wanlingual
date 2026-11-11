@@ -112,3 +112,28 @@ export function dogcheckReport(p, { file = '', labDog = null } = {}) {
   const same = labDog == null ? '' : Math.abs(labDog - p.first.dog) < 0.01 ? `（実験室と同じ ${pc(labDog)}）` : `（実験室は ${pc(labDog)}。**ずれている**）`;
   return `${head}読み込み ${(p.loadMs / 1000).toFixed(1)} 秒で ready。${file} の最初の塊（前を足して ${p.first.sec.toFixed(2)} 秒）→ 犬らしさ ${pc(p.first.dog)}${same}、${p.first.isDog ? '犬' : '犬以外っぽい'}。推論 1 回目 ${p.first.ms} ms、2 回目 ${p.second ? p.second.ms + ' ms' : '—'}\n\n`;
 }
+
+/**
+ * 「吠え以外の声」（CC0 5 本: くんくん・うなり・息・大型犬・小型犬）の 1 回の長さと間隔の分布（plan #13b の材料。2026-11-12）。
+ * features-check.mjs の表は 1 本につき平均 1 行なので、14〜30 秒の長いファイルでは分布が見えない。ここでは声 1 回ごとの
+ * 長さと、声と声の間隔を、中央値と 25–75% で出す。いまの「なぜ」の境目（短い ≤590ms／長い ≥710ms、間隔 短い ≤300ms／ゆったり ≥880ms）
+ * のどちら側に落ちるかが一目で分かるように、境目を超える割合も添える。
+ * rows: [{file, category, source, seconds, events:[{start,dur}]}]（source が CC0 のものだけ使う）。無ければ空文字
+ */
+export function eventDistReport(rows, { longMs = 710, shortMs = 590, gapShortMs = 300, gapLongMs = 880 } = {}) {
+  const cc0 = rows.filter(r => r.source === 'CC0' && Array.isArray(r.events));
+  if (!cc0.length) return '';
+  const q = (arr, p) => { const s = [...arr].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
+  const ms = v => Math.round(v * 1000);
+  const dist = arr => arr.length ? `${ms(q(arr, 0.5))}（${ms(q(arr, 0.25))}–${ms(q(arr, 0.75))}）` : '—';
+  const share = (arr, pred) => arr.length ? `${Math.round(arr.filter(pred).length / arr.length * 100)}%` : '—';
+  let md = `### CC0 5 本（吠え以外の声を含む）の声 1 回の長さ・間隔（#13b の材料）\n\n`;
+  md += `声 1 回ごとの長さと、声と声の間隔（ms、中央値と 25–75%）。「長い」= ${longMs}ms 以上（いまの「1回が長い声→さみしい／威嚇」の境目）、「短い」= ${shortMs}ms 以下、間隔「短い」= ${gapShortMs}ms 以下、「ゆったり」= ${gapLongMs}ms 以上。\n\n`;
+  md += `| ファイル | 秒 | 回数 | 長さ ms | 長い ≥${longMs} | 短い ≤${shortMs} | 最長 ms | 間隔 ms | 間隔 短い ≤${gapShortMs} | ゆったり ≥${gapLongMs} |\n|---|---|---|---|---|---|---|---|---|---|\n`;
+  for (const r of cc0) {
+    const durs = r.events.map(e => e.dur);
+    const gaps = r.events.slice(1).map((e, i) => e.start - (r.events[i].start + r.events[i].dur));
+    md += `| ${r.file} | ${r.seconds ?? '—'} | ${r.events.length} | ${dist(durs)} | ${share(durs, d => ms(d) >= longMs)} | ${share(durs, d => ms(d) <= shortMs)} | ${durs.length ? ms(Math.max(...durs)) : '—'} | ${dist(gaps)} | ${share(gaps, g => ms(g) <= gapShortMs)} | ${share(gaps, g => ms(g) >= gapLongMs)} |\n`;
+  }
+  return md + '\n';
+}

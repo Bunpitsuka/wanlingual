@@ -6,3 +6,4 @@ tests/e2e/screenshots/
 Thumbs.db
 tests/lab/out/
 tests/lab/data/
+tools/out/
