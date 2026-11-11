@@ -11,7 +11,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
 import { MASCOTS, mascotSvg } from '../app/js/mascot.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -85,6 +84,8 @@ h1{font-family:"DotGothic16","Zen Kaku Gothic New",monospace;font-size:84px;line
 }
 
 async function main() {
+  // playwright はここで読む（deploy-pages の単体テストは npm ci 無しで走るので、buildHtml の import で playwright を要求しない）
+  const { chromium } = await import('playwright');
   const keepHtml = process.argv.includes('--html');
   const fonts = fontCss();
   const html = buildHtml({ fonts: fonts.html });
