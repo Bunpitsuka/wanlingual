@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # ubuntu-latest は 2026-11-12 に 26.04 になり Playwright 1.56 が Chromium を入れられない（日報 2026-11-13）
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,7 +22,7 @@ jobs:
       - run: npm run test:unit
   deploy:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # ubuntu-latest は 2026-11-12 に 26.04 になり Playwright 1.56 が Chromium を入れられない（日報 2026-11-13）
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
