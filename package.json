@@ -9,6 +9,7 @@
     "test:unit": "node --test tests/unit/*.test.mjs",
     "test:e2e": "playwright test -c tests/e2e/playwright.config.mjs",
     "og": "node tools/og-image.mjs",
+    "shots": "node tools/screenshots.mjs",
     "test": "npm run test:unit && npm run test:e2e"
   },
   "devDependencies": {

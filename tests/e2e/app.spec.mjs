@@ -47,6 +47,7 @@ test('録音ファイル → 判定 → 正解を教える → LV.1 → 再読�
   await expect(page.locator('#answer')).toHaveClass(/on/);
   await expect(page.locator('#choices button[data-k]')).toHaveCount(6);
   await page.screenshot({ path: path.join(shots, `${testInfo.project.name}-judge.png`), fullPage: true });
+  await page.locator('#result').screenshot({ path: path.join(shots, `${testInfo.project.name}-why.png`) }); // 判定パネルだけ（docs/screenshots/*-why.png の元）
 
   await page.locator('#choices button[data-k="demand"]').click();
   await expect(page.locator('#lvLabel')).toHaveText('LV.1');

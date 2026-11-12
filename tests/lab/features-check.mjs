@@ -13,7 +13,7 @@ import { analyzeSamples } from '../../app/js/features.js';
 import { rules, top, CAT } from '../../app/js/classify.js';
 import { readWav } from './wav.mjs';
 import { listData } from './fetch-data.mjs';
-import { eventDistReport } from './report.mjs';
+import { eventDistReport, eventToneReport } from './report.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const data = listData();
@@ -24,7 +24,7 @@ const rows = data.map(d => {
   const a = analyzeSamples(x, sr);
   const f = a.feats;
   const r = f.n ? rules(f) : null;
-  const events = a.events.map(e => ({ start: +e.start.toFixed(3), dur: +e.dur.toFixed(3), f0: Math.round(e.f0), cent: Math.round(e.cent) }));
+  const events = a.events.map(e => ({ start: +e.start.toFixed(3), dur: +e.dur.toFixed(3), f0: Math.round(e.f0), cent: Math.round(e.cent), level: +e.level.toFixed(4) }));
   return { ...d, path: undefined, sr, seconds: +(x.length / sr).toFixed(2), events, n: f.n, dur: +f.dur.toFixed(3), gap: +f.gap.toFixed(3), f0: Math.round(f.f0), cent: Math.round(f.cent), gapCv: +f.gapCv.toFixed(2), peak: +a.peak.toFixed(3), top: r ? top(r).k : null, topP: r ? +Math.max(...Object.values(r)).toFixed(2) : null };
 });
 
@@ -47,6 +47,7 @@ md += `- ルールだけの判定の内訳（犬、正解ラベル無し）: ${O
 md += `| ファイル | 種類 | 回数 | 長さ(ms) | 間隔(ms) | f0(Hz) | cent(Hz) | gapCv | ルール判定 |\n|---|---|---|---|---|---|---|---|---|\n`;
 md += rows.map(r => `| ${r.file} | ${r.category} | ${r.n} | ${Math.round(r.dur * 1000)} | ${r.n >= 2 ? Math.round(r.gap * 1000) : '—'} | ${r.f0 || '—'} | ${r.cent || '—'} | ${r.n >= 3 ? r.gapCv : '—'} | ${r.top ? `${CAT[r.top].label} ${Math.round(r.topP * 100)}%` : '—'} |`).join('\n') + '\n';
 md += eventDistReport(rows); // CC0 5 本があれば（Actions では届く）、声 1 回ごとの長さ・間隔の分布を足す
+md += eventToneReport(rows); // 同じく、声 1 回ごとの f0・cent・level の分布（さみしい＝音量の小ささ／威嚇＝低さ が見えるか）
 console.log(md);
 fs.mkdirSync(path.join(here, 'out'), { recursive: true });
 fs.writeFileSync(path.join(here, 'out/features-result.json'), JSON.stringify({ at: new Date().toISOString(), rows }, null, 1));

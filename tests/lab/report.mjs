@@ -137,3 +137,38 @@ export function eventDistReport(rows, { longMs = 710, shortMs = 590, gapShortMs 
   }
   return md + '\n';
 }
+
+/**
+ * CC0 5 本の声 1 回ごとのピッチ f0・明るさ cent・音量 level の分布（plan #13b の材料。2026-11-13）。
+ * 2026-11-12 の長さ・間隔の表で「1 回の長さでは さみしい・威嚇 を出せない」と分かったので、代わりに
+ * 「さみしい＝ピッチの動き or 音量の小ささ」「威嚇＝ピッチの低さ」が数字で見えるかを確かめる表。
+ * いまの「なぜ」の境目（声が低い ≤320Hz／高い ≥590Hz、こもった ≤1300Hz／明るい ≥1600Hz）を超える割合も添える。
+ * level は検出器が見た RMS（0〜1）を dBFS にしたもの。録音ごとに音量の基準が違うので、ファイル間の比較ではなく
+ * 「同じファイルの中で、いちばん大きい声から何 dB 下か（25–75%）」も並べる（声の大小のばらつき）。
+ * rows: [{file, source, events:[{start,dur,f0,cent,level}]}]（source が CC0 のものだけ使う）。events に f0 が無ければ空文字
+ */
+export function eventToneReport(rows, { lowHz = 320, highHz = 590, darkHz = 1300, brightHz = 1600 } = {}) {
+  const cc0 = rows.filter(r => r.source === 'CC0' && Array.isArray(r.events));
+  if (!cc0.length || !cc0.some(r => r.events.some(e => 'f0' in e))) return '';
+  const q = (arr, p) => { const s = [...arr].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
+  const rnd = v => Math.round(v);
+  const dist = (arr, f = rnd) => arr.length ? `${f(q(arr, 0.5))}（${f(q(arr, 0.25))}–${f(q(arr, 0.75))}）` : '—';
+  const share = (arr, pred) => arr.length ? `${Math.round(arr.filter(pred).length / arr.length * 100)}%` : '—';
+  const db = v => v > 0 ? 20 * Math.log10(v) : -Infinity;
+  const db1 = v => Number.isFinite(v) ? v.toFixed(1) : '—';
+  let md = `### CC0 5 本の声 1 回ごとのピッチ・明るさ・音量（#13b の材料）\n\n`;
+  md += `声 1 回ごとの f0（Hz。取れた声だけ）、明るさ cent（Hz）、音量 level（dBFS。検出器が見た RMS のピーク）。中央値と 25–75%。「低い」= ${lowHz}Hz 以下（いまの「声が低い→威嚇」の境目）、「高い」= ${highHz}Hz 以上、「こもった」= ${darkHz}Hz 以下、「明るい」= ${brightHz}Hz 以上。音量は録音ごとに基準が違うので、ファイル間で比べるのではなく、同じファイルのいちばん大きい声から何 dB 下か（声の大小のばらつき）を見る。\n\n`;
+  md += `| ファイル | 回数 | f0 が取れた | f0 Hz | 低い ≤${lowHz} | 高い ≥${highHz} | f0 の幅 25–75%（Hz） | cent Hz | こもった ≤${darkHz} | 明るい ≥${brightHz} | level dBFS | 最大の声から（dB 下） |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n`;
+  for (const r of cc0) {
+    const ev = r.events;
+    const f0s = ev.map(e => e.f0).filter(v => v > 0);
+    const cents = ev.map(e => e.cent).filter(v => Number.isFinite(v));
+    const lv = ev.map(e => e.level).filter(v => v > 0);
+    const lvDb = lv.map(db);
+    const maxDb = lvDb.length ? Math.max(...lvDb) : 0;
+    const below = lvDb.map(d => maxDb - d);
+    const spread = f0s.length ? rnd(q(f0s, 0.75) - q(f0s, 0.25)) : '—';
+    md += `| ${r.file} | ${ev.length} | ${share(ev, e => e.f0 > 0)} | ${dist(f0s)} | ${share(f0s, v => v <= lowHz)} | ${share(f0s, v => v >= highHz)} | ${spread} | ${dist(cents)} | ${share(cents, v => v <= darkHz)} | ${share(cents, v => v >= brightHz)} | ${dist(lvDb, db1)} | ${dist(below, db1)} |\n`;
+  }
+  return md + '\n';
+}

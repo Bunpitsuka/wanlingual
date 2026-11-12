@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { pickEsc50, NON_DOG, PER_CLASS } from '../lab/fetch-data.mjs';
-import { thresholdReport, clusterReport, minSecReport, clusterCell, eventDistReport } from '../lab/report.mjs';
+import { thresholdReport, clusterReport, minSecReport, clusterCell, eventDistReport, eventToneReport } from '../lab/report.mjs';
 
 const csv = ['filename,fold,target,category,esc10,src_file,take',
   ...Array.from({ length: 45 }, (_, i) => `${5 - (i % 5)}-${1000 + i}-A-0.wav,1,0,dog,True,${1000 + i},A`),
@@ -99,4 +99,24 @@ test('CC0 の声 1 回ごとの長さ・間隔の分布: 中央値・25–75%・
   assert.match(md, /\| nothing\.wav \| 3 \| 0 \| — \| — \| — \| — \| — \| — \| — \|/);
   assert.doesNotMatch(md, /1-100032/);
   assert.equal(eventDistReport(rows.filter(r => r.source !== 'CC0')), '');
+});
+
+test('CC0 の声 1 回ごとの f0・cent・level の分布: 低い／高い・こもった／明るい の割合と、最大の声からの dB 差が出る。f0 が無ければ空', () => {
+  const ev = (f0, cent, level) => ({ start: 0, dur: 0.1, f0, cent, level });
+  const rows = [
+    // うなり 相当: 低くてこもった声。音量はそろっている（0.1 と 0.05 = 6 dB 差）
+    { file: 'growl.wav', category: 'dog(cc0)', source: 'CC0', events: [ev(300, 1200, 0.1), ev(310, 1250, 0.1), ev(0, 1300, 0.05), ev(320, 1400, 0.1)] },
+    // くんくん 相当: 高くて明るい声、小さい声が混ざる（0.2 → 0.02 = 20 dB 下）
+    { file: 'whimper.wav', category: 'dog(cc0)', source: 'CC0', events: [ev(600, 1700, 0.2), ev(700, 1800, 0.02)] },
+    { file: 'nothing.wav', category: 'dog(cc0)', source: 'CC0', events: [] },
+    { file: '1-100032-A-0.wav', category: 'dog', source: 'ESC-50', events: [ev(500, 1500, 0.1)] }, // ESC-50 は表に出さない
+  ];
+  const md = eventToneReport(rows);
+  // f0 が取れたのは 4 回中 3 回。f0 300/310/320 → 中央値 310、低い ≤320 は 100%、高い 0%、幅 20。cent 1200/1250/1300/1400 → 1300（1250–1400）、こもった 75%。音量は 0.1 が 3 回（-20 dBFS）と 0.05 が 1 回（6 dB 下）
+  assert.match(md, /\| growl\.wav \| 4 \| 75% \| 310（300–320） \| 100% \| 0% \| 20 \| 1300（1250–1400） \| 75% \| 0% \| -20\.0（-20\.0–-20\.0） \| 0\.0（0\.0–6\.0） \|/);
+  assert.match(md, /\| whimper\.wav \| 2 \| 100% \| 700（600–700） \| 0% \| 100% \| 100 \| 1800（1700–1800） \| 0% \| 100% \| -14\.0（-34\.0–-14\.0） \| 20\.0（0\.0–20\.0） \|/);
+  assert.match(md, /\| nothing\.wav \| 0 \| — \| — \| — \| — \| — \| — \| — \| — \| — \| — \|/);
+  assert.doesNotMatch(md, /1-100032/);
+  assert.equal(eventToneReport(rows.filter(r => r.source !== 'CC0')), '');
+  assert.equal(eventToneReport(rows.map(r => ({ ...r, events: r.events.map(({ start, dur }) => ({ start, dur })) }))), '', '長さ・間隔だけの古い events なら出さない');
 });

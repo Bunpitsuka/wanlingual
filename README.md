@@ -34,6 +34,7 @@ tests/
                      dogcheck-probe.mjs は本体の dogcheck.js を本体のページの中で本物の tfjs・モデルに通す。
                      sri-check.mjs は CDN の tf.min.js のハッシュが app/lab/yamnet.js の TFJS_SRI と一致するか確かめる
 tools/og-image.mjs   OGP 画像（app/icons/og.png）の生成。mascot.js の絵と本体の色・フォントで HTML を組み、Playwright の Chromium で撮る
+tools/screenshots.mjs  docs/screenshots/ を E2E の絵（tests/e2e/screenshots/）から更新する（`npm run test:e2e && npm run shots`）
 .github/workflows/pages.yml   main に push → GitHub Pages へ自動デプロイ
 ```
 
@@ -43,4 +44,5 @@ tools/og-image.mjs   OGP 画像（app/icons/og.png）の生成。mascot.js の�
 npm run serve        # http://localhost:4173 （localhost ならマイクが使える）
 npm run test:unit
 npm run test:e2e     # 初回は npm install と npx playwright install chromium
+npm run shots        # E2E の絵で docs/screenshots/ を更新（画面を変えたら E2E のあとに）
 ```
