@@ -35,6 +35,7 @@ tests/
                      sri-check.mjs は CDN の tf.min.js のハッシュが app/lab/yamnet.js の TFJS_SRI と一致するか確かめる
 tools/og-image.mjs   OGP 画像（app/icons/og.png）の生成。mascot.js の絵と本体の色・フォントで HTML を組み、Playwright の Chromium で撮る
 tools/screenshots.mjs  docs/screenshots/ を E2E の絵（tests/e2e/screenshots/）から更新する（`npm run test:e2e && npm run shots`）
+tools/mfcc-bench.mjs   plan #13 の下調べ: ライブラリ無しの自前 MFCC（13 次元）の手順と、1 秒あたりの処理時間の計測（`node tools/mfcc-bench.mjs`。本体には入れていない）
 .github/workflows/pages.yml   main に push → GitHub Pages へ自動デプロイ
 ```
 
