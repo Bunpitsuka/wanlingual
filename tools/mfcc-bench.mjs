@@ -92,6 +92,18 @@ export function mfccSummary(frames) {
   return { mean, sd };
 }
 
+/**
+ * 声 1 回ごと（events: [{start, dur}] 秒。features.js の analyzeSamples().events）の中にあるフレームだけの MFCC の要約
+ * { frames, mean, sd }。声と声の間（無音・環境音）のフレームは入れない。フレームの中心（f·hop + frame/2）がどれかの声の中に
+ * あるものを使う。本体に入れるときは塊 1 つが 1 回の呼び出しになる想定（2026-11-15、lab-yamnet の表のため）。
+ */
+export function mfccOfEvents(x, sr, events, opts = {}) {
+  const frame = opts.frame ?? 1024, hop = opts.hop ?? 256;
+  const inVoice = t => events.some(e => t >= e.start && t < e.start + e.dur);
+  const picked = mfccFrames(x, sr, opts).filter((_, f) => inVoice((f * hop + frame / 2) / sr));
+  return { frames: picked.length, ...mfccSummary(picked) };
+}
+
 /** 1 秒あたりの処理時間（ms）を reps 回測って中央値・最小・最大を返す */
 export function bench(x, sr, reps = 20, opts = {}) {
   const bank = melFilterbank(opts.frame ?? 1024, sr, opts.nMel ?? 26), dct = dctMatrix(opts.nMel ?? 26, opts.nCoef ?? 13);

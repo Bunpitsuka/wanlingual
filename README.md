@@ -12,7 +12,7 @@
 app/                 PWA 本体（静的サイト。このフォルダをそのまま公開する）
   index.html         画面
   css/app.css        デザイン（LCD風の緑パネル、DotGothic16 / Zen Kaku Gothic New、ライト／ダーク）
-  js/features.js     特徴量抽出（吠え検出、ピッチ、スペクトル重心）
+  js/features.js     特徴量抽出（吠え検出、ピッチ、スペクトル重心、声の大小のばらつき lvlDrop＝出すだけで判定には未使用）
   js/classify.js     判定（ルール + kNN）、判定の「なぜ」（効いた特徴を言葉に）、育成度
   js/store.js        保存（localStorage。特徴量と正解だけ。音声は保存しない）
   js/mic.js          マイク常時監視 → 吠えの塊を切り出す
@@ -35,7 +35,8 @@ tests/
                      sri-check.mjs は CDN の tf.min.js のハッシュが app/lab/yamnet.js の TFJS_SRI と一致するか確かめる
 tools/og-image.mjs   OGP 画像（app/icons/og.png）の生成。mascot.js の絵と本体の色・フォントで HTML を組み、Playwright の Chromium で撮る
 tools/screenshots.mjs  docs/screenshots/ を E2E の絵（tests/e2e/screenshots/）から更新する（`npm run test:e2e && npm run shots`）
-tools/mfcc-bench.mjs   plan #13 の下調べ: ライブラリ無しの自前 MFCC（13 次元）の手順と、1 秒あたりの処理時間の計測（`node tools/mfcc-bench.mjs`。本体には入れていない）
+tools/mfcc-bench.mjs   plan #13 の下調べ: ライブラリ無しの自前 MFCC（13 次元）の手順と、1 秒あたりの処理時間の計測（`node tools/mfcc-bench.mjs`。本体には入れていない。
+                     lab-yamnet の features-check.mjs が声 1 回ごとの MFCC の表を出すのに mfccOfEvents() を使う）
 .github/workflows/pages.yml   main に push → GitHub Pages へ自動デプロイ
 ```
 

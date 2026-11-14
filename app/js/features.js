@@ -65,9 +65,20 @@ export function centroid(seg, sr) {
 
 const mean = a => a.length ? a.reduce((p, q) => p + q, 0) / a.length : 0;
 
+/** 声の大小のばらつき（dB）: いちばん大きい声から各声が何 dB 下かの中央値。2 回未満・音量が 0 なら 0 */
+export function levelDrop(levels) {
+  const lv = levels.filter(v => v > 0);
+  if (lv.length < 2) return 0;
+  const max = Math.max(...lv);
+  return median(lv.map(v => 20 * Math.log10(max / v)));
+}
+
 /**
  * モノラル波形 x（Float32Array）と sampleRate から、吠えイベントと特徴量を返す。
- * 戻り値: { feats:{n,dur,gap,f0,cent,gapCv,durCv}, events:[{start,dur,f0,cent,level}], rms, thr, peak, total }
+ * 戻り値: { feats:{n,dur,gap,f0,cent,gapCv,durCv,lvlDrop}, events:[{start,dur,f0,cent,level}], rms, thr, peak, total }
+ * lvlDrop（dB、0 以上）: 声の大小のばらつき＝塊の中でいちばん大きい声から各声が何 dB 下かの中央値（plan #13b）。
+ *   連吠えはほぼ同じ大きさで鳴くので 0〜2、くんくんは小さい声が混ざるので 5 前後（docs/accuracy.md 2026-11-13）。
+ *   1 回しか鳴いていなければ測れないので 0。いまは出すだけで、判定（classify.js）・表示には使っていない。
  * opts.thrAbs: 絶対しきい値の下限（マイク監視では少し高めにする）
  */
 export function analyzeSamples(x, sr, opts = {}) {
@@ -129,6 +140,7 @@ export function analyzeSamples(x, sr, opts = {}) {
     cent: mean(events.map(e => e.cent)),
     gapCv: gaps.length > 1 ? Math.sqrt(mean(gaps.map(g => (g - gm) ** 2))) / Math.max(gm, 1e-6) : 1,
     durCv: events.length > 1 ? Math.sqrt(mean(durs.map(d => (d - dm) ** 2))) / Math.max(dm, 1e-6) : 0,
+    lvlDrop: levelDrop(events.map(e => e.level)),
   };
   return { feats, events, rms, thr, peak, total: n / sr };
 }

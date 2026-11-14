@@ -13,7 +13,8 @@ import { analyzeSamples } from '../../app/js/features.js';
 import { rules, top, CAT } from '../../app/js/classify.js';
 import { readWav } from './wav.mjs';
 import { listData } from './fetch-data.mjs';
-import { eventDistReport, eventToneReport } from './report.mjs';
+import { eventDistReport, eventToneReport, mfccReport } from './report.mjs';
+import { mfccOfEvents } from '../../tools/mfcc-bench.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const data = listData();
@@ -25,7 +26,10 @@ const rows = data.map(d => {
   const f = a.feats;
   const r = f.n ? rules(f) : null;
   const events = a.events.map(e => ({ start: +e.start.toFixed(3), dur: +e.dur.toFixed(3), f0: Math.round(e.f0), cent: Math.round(e.cent), level: +e.level.toFixed(4) }));
-  return { ...d, path: undefined, sr, seconds: +(x.length / sr).toFixed(2), events, n: f.n, dur: +f.dur.toFixed(3), gap: +f.gap.toFixed(3), f0: Math.round(f.f0), cent: Math.round(f.cent), gapCv: +f.gapCv.toFixed(2), peak: +a.peak.toFixed(3), top: r ? top(r).k : null, topP: r ? +Math.max(...Object.values(r)).toFixed(2) : null };
+  // MFCC（plan #13 の材料、2026-11-15）: 声 1 回ごとのフレームだけの 13 係数の平均。本体には入れていない（tools/mfcc-bench.mjs）
+  const m = mfccOfEvents(x, sr, a.events);
+  const mfcc = { frames: m.frames, mean: Array.from(m.mean, v => +v.toFixed(2)), sd: Array.from(m.sd, v => +v.toFixed(2)) };
+  return { ...d, path: undefined, sr, seconds: +(x.length / sr).toFixed(2), events, mfcc, n: f.n, dur: +f.dur.toFixed(3), gap: +f.gap.toFixed(3), f0: Math.round(f.f0), cent: Math.round(f.cent), gapCv: +f.gapCv.toFixed(2), peak: +a.peak.toFixed(3), top: r ? top(r).k : null, topP: r ? +Math.max(...Object.values(r)).toFixed(2) : null };
 });
 
 const pct = (a, b) => b ? `${a}/${b}（${Math.round(a / b * 100)}%）` : '—';
@@ -48,6 +52,7 @@ md += `| ファイル | 種類 | 回数 | 長さ(ms) | 間隔(ms) | f0(Hz) | cen
 md += rows.map(r => `| ${r.file} | ${r.category} | ${r.n} | ${Math.round(r.dur * 1000)} | ${r.n >= 2 ? Math.round(r.gap * 1000) : '—'} | ${r.f0 || '—'} | ${r.cent || '—'} | ${r.n >= 3 ? r.gapCv : '—'} | ${r.top ? `${CAT[r.top].label} ${Math.round(r.topP * 100)}%` : '—'} |`).join('\n') + '\n';
 md += eventDistReport(rows); // CC0 5 本があれば（Actions では届く）、声 1 回ごとの長さ・間隔の分布を足す
 md += eventToneReport(rows); // 同じく、声 1 回ごとの f0・cent・level の分布（さみしい＝音量の小ささ／威嚇＝低さ が見えるか）
+md += mfccReport(rows); // MFCC c1〜c12 の平均が くんくん／うなり で吠え（ESC-50 40 本）から離れるか（#13。分かれなければ本体に入れない）
 console.log(md);
 fs.mkdirSync(path.join(here, 'out'), { recursive: true });
 fs.writeFileSync(path.join(here, 'out/features-result.json'), JSON.stringify({ at: new Date().toISOString(), rows }, null, 1));

@@ -172,3 +172,46 @@ export function eventToneReport(rows, { lowHz = 320, highHz = 590, darkHz = 1300
   }
   return md + '\n';
 }
+
+/**
+ * MFCC（c1〜c12 の平均）が くんくん／うなり／吠え で分かれるかの表（plan #13 の材料。2026-11-15）。
+ * rows[].mfcc = { frames, mean: [c0..c12] }（声 1 回ごとのフレームだけの平均。tools/mfcc-bench.mjs の mfccOfEvents）。
+ * 基準は ESC-50 dog（吠え）: ファイルごとの平均の、40 本の平均 μ と標準偏差 σ。CC0 5 本と犬以外の各クラスについて
+ * 係数ごとの z = (値 − μ) / σ を出し、|z| ≥ zMin の係数を「吠えから離れた係数」として挙げる。
+ * 1 本も離れた係数が無ければ、MFCC を足してもルール・kNN の助けにならない見込み。c0 は音量に近いので表から外す。
+ * ESC-50 dog に mfcc が 2 本以上無ければ空文字。
+ */
+export function mfccReport(rows, { zMin = 2, nCoef = 12 } = {}) {
+  const has = r => r.mfcc && r.mfcc.frames > 0 && Array.isArray(r.mfcc.mean) && r.mfcc.mean.length > nCoef;
+  const dogs = rows.filter(r => r.source === 'ESC-50' && r.category === 'dog' && has(r));
+  if (dogs.length < 2) return '';
+  const coefs = Array.from({ length: nCoef }, (_, i) => i + 1); // c1..c12
+  const stats = list => coefs.map(i => {
+    const v = list.map(r => r.mfcc.mean[i]); const mu = v.reduce((a, b) => a + b, 0) / v.length;
+    return { mu, sd: Math.sqrt(v.reduce((a, b) => a + (b - mu) ** 2, 0) / v.length) };
+  });
+  const ref = stats(dogs);
+  const z = (v, i) => ref[i].sd > 1e-9 ? (v - ref[i].mu) / ref[i].sd : 0;
+  const far = means => coefs.map((c, i) => [c, z(means[c], i)]).filter(([, zz]) => Math.abs(zz) >= zMin)
+    .map(([c, zz]) => `c${c}(${zz > 0 ? '+' : '−'}${Math.abs(zz).toFixed(1)}σ)`).join(' ') || '—';
+  const f1 = v => v.toFixed(1);
+  const frames = list => list.reduce((a, r) => a + r.mfcc.frames, 0);
+  const byCat = cat => rows.filter(r => r.source === 'ESC-50' && r.category === cat && has(r));
+  const catMeans = list => [0, ...stats(list).map(s => s.mu)];
+  let md = `### MFCC（c1〜c12 の平均）は くんくん／うなり／吠え で分かれるか（#13 の材料）\n\n`;
+  md += `声 1 回ごとのフレームだけ（声と声の間は入れない）の MFCC（自前 13 次元、\`tools/mfcc-bench.mjs\`。frame 1024 / hop 256 / メル 26）の平均。c0 は音量に近いので外した。基準は ESC-50 の吠え ${dogs.length} 本（ファイルごとの平均の 平均 ± 標準偏差）。「吠えから離れた係数」= 吠え ${dogs.length} 本の散らばりに対して |z| ≥ ${zMin}（標準偏差の ${zMin} 倍）離れている係数。1 つも無ければ、MFCC を足しても いまのルール・kNN の助けにならない見込み。\n\n`;
+  md += `| 音 | 本 | 声のフレーム | ${coefs.map(c => `c${c}`).join(' | ')} | 吠えから離れた係数（\\|z\\| ≥ ${zMin}） |\n|---|---|---|${coefs.map(() => '---').join('|')}|---|\n`;
+  md += `| ESC-50 吠え（基準） | ${dogs.length} | ${frames(dogs)} | ${ref.map(s => `${f1(s.mu)}±${f1(s.sd)}`).join(' | ')} | — |\n`;
+  const cc0 = rows.filter(r => r.source === 'CC0' && has(r)).sort((a, b) => a.file.localeCompare(b.file));
+  for (const r of cc0) md += `| ${r.file} | 1 | ${r.mfcc.frames} | ${coefs.map(i => f1(r.mfcc.mean[i])).join(' | ')} | ${far(r.mfcc.mean)} |\n`;
+  const otherCats = [...new Set(rows.filter(r => r.source === 'ESC-50' && r.category !== 'dog' && has(r)).map(r => r.category))].sort();
+  for (const cat of otherCats) {
+    const list = byCat(cat), means = catMeans(list);
+    md += `| 犬以外: ${cat} | ${list.length} | ${frames(list)} | ${coefs.map(i => f1(means[i])).join(' | ')} | ${far(means)} |\n`;
+  }
+  const cc0Far = cc0.filter(r => far(r.mfcc.mean) !== '—').length;
+  md += cc0.length ? `\n- CC0 ${cc0.length} 本のうち、吠えから |z| ≥ ${zMin} 離れた係数が 1 つ以上ある本: **${cc0Far}/${cc0.length}**` : `\n- CC0 の 5 本（くんくん・うなり・息・大型犬・小型犬）はこの実行では取れていない（Hugging Face に届かない環境。Actions の lab-yamnet では届く）`;
+  if (otherCats.length) md += `。犬以外 ${otherCats.length} クラスのうち同じく離れた係数があるクラス: ${otherCats.filter(cat => far(catMeans(byCat(cat))) !== '—').length}/${otherCats.length}`;
+  md += `\n- 注意: CC0 は 1 種類 1 本（1 頭）なので、犬の個体差・録音条件の違いと見分けがつかない。離れていても「本物の犬で効く」とは言い切れず、離れていなければ「この 5 本では効かない」とは言える（片方向の確認）。\n`;
+  return md + '\n';
+}

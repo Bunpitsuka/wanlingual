@@ -120,3 +120,29 @@ test('CC0 の声 1 回ごとの f0・cent・level の分布: 低い／高い・�
   assert.equal(eventToneReport(rows.filter(r => r.source !== 'CC0')), '');
   assert.equal(eventToneReport(rows.map(r => ({ ...r, events: r.events.map(({ start, dur }) => ({ start, dur })) }))), '', '長さ・間隔だけの古い events なら出さない');
 });
+
+test('MFCC の表: ESC-50 吠えの平均±σ を基準に、CC0 と犬以外で |z| ≥ 2 の係数を挙げる。吠えが 2 本未満なら空', async () => {
+  const { mfccReport } = await import('../lab/report.mjs');
+  // 吠え 4 本: c1 が 10/12/14/16（平均 13、σ ≒ 2.24）、c2〜c12 は全部 1/−1 の交互（平均 0、σ 1）
+  const bark = (i, c1) => ({ file: `d${i}`, category: 'dog', source: 'ESC-50', mfcc: { frames: 100, mean: [50, c1, ...Array.from({ length: 11 }, () => (i % 2 ? 1 : -1))] } });
+  const rows = [bark(1, 10), bark(2, 12), bark(3, 14), bark(4, 16),
+    // くんくん 相当: c1 は吠えと同じ、c3 だけ +5（z = +5）
+    { file: 'whimper.wav', category: 'dog(cc0)', source: 'CC0', mfcc: { frames: 30, mean: [40, 13, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0] } },
+    // うなり 相当: 全部吠えの平均どおり → 離れた係数なし
+    { file: 'growl.wav', category: 'dog(cc0)', source: 'CC0', mfcc: { frames: 20, mean: [40, 13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] } },
+    { file: 'nothing.wav', category: 'dog(cc0)', source: 'CC0', mfcc: { frames: 0, mean: [] } }, // 声が無ければ表に出さない
+    // 猫 2 本: c1 の平均が 4（z = (4−13)/2.24 ≒ −4.0）
+    { file: 'c1', category: 'cat', source: 'ESC-50', mfcc: { frames: 10, mean: [40, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] } },
+    { file: 'c2', category: 'cat', source: 'ESC-50', mfcc: { frames: 10, mean: [40, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] } },
+  ];
+  const md = mfccReport(rows);
+  assert.match(md, /\| ESC-50 吠え（基準） \| 4 \| 400 \| 13\.0±2\.2 \| 0\.0±1\.0 \|/);
+  assert.match(md, /\| whimper\.wav \| 1 \| 30 \| 13\.0 \| 0\.0 \| 5\.0 \|.*\| c3\(\+5\.0σ\) \|/);
+  assert.match(md, /\| growl\.wav \| 1 \| 20 \|.*\| — \|\n/);
+  assert.doesNotMatch(md, /nothing\.wav/);
+  assert.match(md, /\| 犬以外: cat \| 2 \| 20 \| 4\.0 \|.*\| c1\(−4\.0σ\) \|/);
+  assert.match(md, /CC0 2 本のうち.*\*\*1\/2\*\*。犬以外 1 クラスのうち.*1\/1/);
+  assert.equal(mfccReport(rows.filter(r => r.category !== 'dog')), '');
+  assert.equal(mfccReport([rows[0], ...rows.slice(4)]), '', '吠えが 1 本では σ が出ないので空');
+  assert.match(mfccReport(rows.filter(r => r.source !== 'CC0')), /CC0 の 5 本.*はこの実行では取れていない/);
+});

@@ -67,7 +67,7 @@ test('録音ファイル → 判定 → 正解を教える → LV.1 → 再読�
   const arr = JSON.parse(raw);
   expect(arr).toHaveLength(1);
   expect(arr[0].label).toBe('demand');
-  expect(Object.keys(arr[0].f).sort()).toEqual(['cent', 'dur', 'durCv', 'f0', 'gap', 'gapCv', 'n']); // 特徴量だけ。音声は保存しない
+  expect(Object.keys(arr[0].f).sort()).toEqual(['cent', 'dur', 'durCv', 'f0', 'gap', 'gapCv', 'lvlDrop', 'n']); // 特徴量（数字 8 つ）だけ。音声は保存しない。lvlDrop は #13b (i)（2026-11-15）で増えた 1 つ
 });
 
 test('無音ファイルは「？」で記録しない', async ({ page }) => {

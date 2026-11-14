@@ -121,3 +121,40 @@ test('判定の「なぜ」: 教えた声が 3 件以上あれば、似た声の
   // 似た声にその気持ちが 1 件も無ければ kNN の行は足さない
   assert.ok(!explain(f, 'lonely', samples).some(r => r.includes('似た声')));
 });
+
+/** 合成の連吠え: 620Hz の 120ms の声を 300ms 間隔で、声ごとの大きさ amps（0〜1）で並べる */
+function synthBarks(amps, sr = 44100) {
+  const dur = 0.12, gap = 0.30, x = new Float32Array(Math.round(sr * (0.3 + amps.length * (dur + gap))));
+  amps.forEach((a, k) => {
+    const o = Math.round(sr * (0.15 + k * (dur + gap))), n = Math.round(sr * dur);
+    for (let i = 0; i < n; i++) x[o + i] = a * Math.sin(2 * Math.PI * 620 * i / sr) * Math.sin(Math.PI * i / n);
+  });
+  return x;
+}
+
+test('lvlDrop（#13b (i)）: 同じ大きさの 4 連吠えは ≒ 0 dB、4 回のうち 2 回を 1/4 の大きさ（-12 dB）にすると中央値が上がる。1 回だけなら 0', () => {
+  const even = analyzeSamples(synthBarks([0.5, 0.5, 0.5, 0.5]), 44100);
+  assert.equal(even.feats.n, 4);
+  assert.ok(even.feats.lvlDrop >= 0 && even.feats.lvlDrop < 1, 'そろった連吠え: ' + even.feats.lvlDrop);
+  // 4 回のうち 2 回を 1/4 の大きさに → 中央値は 0 と 12 の間（median(0,0,12,12) = 6）
+  const mixed = analyzeSamples(synthBarks([0.5, 0.125, 0.5, 0.125]), 44100);
+  assert.equal(mixed.feats.n, 4);
+  assert.ok(mixed.feats.lvlDrop > 3 && mixed.feats.lvlDrop < 9, '小さい声が混ざる: ' + mixed.feats.lvlDrop);
+  // bark4.wav（合成の 4 連、同じ大きさ）も 0 寄り。howl.wav（1 回）は 0。無音は 0
+  assert.ok(analyzeSamples(wav('../fixtures/bark4.wav').x, 44100).feats.lvlDrop < 1);
+  assert.equal(analyzeSamples(wav('../fixtures/howl.wav').x, 44100).feats.lvlDrop, 0);
+  assert.equal(analyzeSamples(wav('../fixtures/silence.wav').x, 44100).feats.lvlDrop, 0);
+});
+
+test('levelDrop（純粋関数）: 最大の声からの dB 差の中央値。2 回未満・0 は 0。判定の数字（rules）は lvlDrop があっても無くても同じ', async () => {
+  const { levelDrop } = await import('../../app/js/features.js');
+  assert.equal(levelDrop([0.1, 0.1, 0.1]), 0);
+  assert.ok(Math.abs(levelDrop([0.1, 0.05]) - 3) < 0.05, '0.1 と 0.05 → 0 と 6.02 の中央値 3.01');
+  assert.ok(Math.abs(levelDrop([0.2, 0.02, 0.02]) - 20) < 0.01, '20 dB 下が 2 回 → 中央値 20');
+  assert.equal(levelDrop([0.3]), 0); assert.equal(levelDrop([]), 0); assert.equal(levelDrop([0, 0.1]), 0, '0 は数えない → 1 回扱い');
+  const f = analyzeSamples(wav('../fixtures/bark4.wav').x, 44100).feats;
+  const { lvlDrop, ...without } = f;
+  assert.ok(typeof lvlDrop === 'number');
+  assert.deepEqual(rules(f), rules(without), 'ルールは lvlDrop を見ない（(i) では判定を変えない）');
+  assert.deepEqual(predict(f, []), predict(without, []));
+});

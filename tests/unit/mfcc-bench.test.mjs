@@ -48,3 +48,16 @@ test('bench: 1 秒あたりの ms を返す（数値、フレーム数 169/秒�
   assert.ok(b.msPerSec > 0 && Number.isFinite(b.msPerSec));
   assert.ok(Math.abs(b.framesPerSec - 169) < 4);
 });
+
+test('mfccOfEvents: 声の中のフレームだけを使う（1 秒の音の真ん中 0.5 秒が声 → 約 86 フレーム）。声が無ければ 0 フレーム', async () => {
+  const { mfccOfEvents } = await import('../../tools/mfcc-bench.mjs');
+  const sr = 44100, x = new Float32Array(sr);
+  for (let i = 0; i < sr; i++) x[i] = 0.3 * Math.sin(2 * Math.PI * 440 * i / sr);
+  const m = mfccOfEvents(x, sr, [{ start: 0.25, dur: 0.5 }]);
+  assert.ok(Math.abs(m.frames - 0.5 * sr / 256) < 3, 'frames: ' + m.frames); // 0.5 秒 ÷ hop 256 ≒ 86
+  assert.equal(m.mean.length, 13); assert.equal(m.sd.length, 13);
+  const all = mfccOfEvents(x, sr, [{ start: 0, dur: 1 }]);
+  assert.equal(all.frames, 169, '全部が声なら mfccFrames と同じ数');
+  const none = mfccOfEvents(x, sr, []);
+  assert.equal(none.frames, 0); assert.equal(none.mean.length, 0);
+});
