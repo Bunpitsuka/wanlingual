@@ -13,7 +13,8 @@ import { analyzeSamples } from '../../app/js/features.js';
 import { rules, top, CAT } from '../../app/js/classify.js';
 import { readWav } from './wav.mjs';
 import { listData } from './fetch-data.mjs';
-import { eventDistReport, eventToneReport, mfccReport } from './report.mjs';
+import { eventDistReport, eventToneReport, mfccReport, lvlDropReport } from './report.mjs';
+import { clustersFromEvents } from '../../app/lab/yamnet.js';
 import { mfccOfEvents } from '../../tools/mfcc-bench.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -29,7 +30,13 @@ const rows = data.map(d => {
   // MFCC（plan #13 の材料、2026-11-15）: 声 1 回ごとのフレームだけの 13 係数の平均。本体には入れていない（tools/mfcc-bench.mjs）
   const m = mfccOfEvents(x, sr, a.events);
   const mfcc = { frames: m.frames, mean: Array.from(m.mean, v => +v.toFixed(2)), sd: Array.from(m.sd, v => +v.toFixed(2)) };
-  return { ...d, path: undefined, sr, seconds: +(x.length / sr).toFixed(2), events, mfcc, n: f.n, dur: +f.dur.toFixed(3), gap: +f.gap.toFixed(3), f0: Math.round(f.f0), cent: Math.round(f.cent), gapCv: +f.gapCv.toFixed(2), peak: +a.peak.toFixed(3), top: r ? top(r).k : null, topP: r ? +Math.max(...Object.values(r)).toFixed(2) : null };
+  // 塊ごとの lvlDrop（plan #13b の材料、2026-11-16）: 本体 mic.js と同じ区切り（0.7 秒あいたら切る、前 0.25 秒・後 0.12 秒）の塊を
+  // 切り出して、本体と同じ analyzeSamples() を掛け直す（しきい値は塊の中で決まるので、ファイル全体の events を分けるより本体に近い）
+  const clusterDrops = clustersFromEvents(a.events, x.length / sr).map(c => {
+    const ca = analyzeSamples(x.subarray(Math.round(c.start * sr), Math.round(c.end * sr)), sr);
+    return { start: +c.start.toFixed(3), end: +c.end.toFixed(3), n: ca.feats.n, lvlDrop: +ca.feats.lvlDrop.toFixed(2) };
+  });
+  return { ...d, path: undefined, sr, seconds: +(x.length / sr).toFixed(2), events, mfcc, clusterDrops, n: f.n, lvlDrop: +f.lvlDrop.toFixed(2), dur: +f.dur.toFixed(3), gap: +f.gap.toFixed(3), f0: Math.round(f.f0), cent: Math.round(f.cent), gapCv: +f.gapCv.toFixed(2), peak: +a.peak.toFixed(3), top: r ? top(r).k : null, topP: r ? +Math.max(...Object.values(r)).toFixed(2) : null };
 });
 
 const pct = (a, b) => b ? `${a}/${b}（${Math.round(a / b * 100)}%）` : '—';
@@ -53,6 +60,7 @@ md += rows.map(r => `| ${r.file} | ${r.category} | ${r.n} | ${Math.round(r.dur *
 md += eventDistReport(rows); // CC0 5 本があれば（Actions では届く）、声 1 回ごとの長さ・間隔の分布を足す
 md += eventToneReport(rows); // 同じく、声 1 回ごとの f0・cent・level の分布（さみしい＝音量の小ささ／威嚇＝低さ が見えるか）
 md += mfccReport(rows); // MFCC c1〜c12 の平均が くんくん／うなり で吠え（ESC-50 40 本）から離れるか（#13。分かれなければ本体に入れない）
+md += lvlDropReport(rows); // 塊ごとの lvlDrop が くんくん／うなり で吠えより大きいか（#13b。`uneven` の境目 1.5→5.5 dB をこの数字で決める）
 console.log(md);
 fs.mkdirSync(path.join(here, 'out'), { recursive: true });
 fs.writeFileSync(path.join(here, 'out/features-result.json'), JSON.stringify({ at: new Date().toISOString(), rows }, null, 1));

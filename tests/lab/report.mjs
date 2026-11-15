@@ -215,3 +215,44 @@ export function mfccReport(rows, { zMin = 2, nCoef = 12 } = {}) {
   md += `\n- 注意: CC0 は 1 種類 1 本（1 頭）なので、犬の個体差・録音条件の違いと見分けがつかない。離れていても「本物の犬で効く」とは言い切れず、離れていなければ「この 5 本では効かない」とは言える（片方向の確認）。\n`;
   return md + '\n';
 }
+
+/**
+ * 塊ごとの lvlDrop（声の大小のばらつき、dB）の分布（plan #13b の材料。2026-11-16）。
+ * 2026-11-15 に 5 秒のファイル全体で見た lvlDrop は、本物の吠えでも 1/4 が 4 dB を超えた。本体は塊（mic.js と同じ区切り、
+ * 0.7 秒あいたら切る）ごとに出すので、ここでは塊ごとに本体と同じ analyzeSamples() を掛け直した値を見る。
+ * rows[].clusterDrops = [{ start, end, n, lvlDrop }]（features-check.mjs が clustersFromEvents の塊ごとに出す）。
+ * 2 回以上鳴いた塊（n ≥ 2）だけを使う（1 回では測れないので本体も 0 を入れる）。
+ * 表: ESC-50 の吠え（まとめて）、CC0 の各本、犬以外の各クラス について、塊の数・中央値・25–75%・最大と、
+ * 設計メモ 5 の `uneven` の境目（evenMax dB で 0、unevenMin dB で 1）を超える塊の割合。
+ * ESC-50 の吠えの塊が 1 つも無ければ空文字。
+ */
+export function lvlDropReport(rows, { evenMax = 1.5, unevenMin = 5.5, midDb = 4 } = {}) {
+  const has = r => Array.isArray(r.clusterDrops);
+  const drops = list => list.flatMap(r => r.clusterDrops.filter(c => c.n >= 2).map(c => c.lvlDrop));
+  const nAll = list => list.reduce((a, r) => a + r.clusterDrops.length, 0);
+  const dogs = rows.filter(r => r.source === 'ESC-50' && r.category === 'dog' && has(r));
+  if (!drops(dogs).length) return '';
+  const q = (arr, p) => { const s = [...arr].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
+  const f1 = v => v.toFixed(1);
+  const share = (arr, pred) => arr.length ? `${Math.round(arr.filter(pred).length / arr.length * 100)}%` : '—';
+  const line = (name, list) => {
+    const d = drops(list);
+    if (!d.length) return `| ${name} | ${list.length} | ${nAll(list)} | 0 | — | — | — | — | — | — |\n`;
+    return `| ${name} | ${list.length} | ${nAll(list)} | ${d.length} | ${f1(q(d, 0.5))} | ${f1(q(d, 0.25))}–${f1(q(d, 0.75))} | ${f1(Math.max(...d))} | ${share(d, v => v <= evenMax)} | ${share(d, v => v > midDb)} | ${share(d, v => v >= unevenMin)} |\n`;
+  };
+  let md = `### 塊ごとの lvlDrop（声の大小のばらつき）は くんくん／うなり で吠えより大きいか（#13b の材料）\n\n`;
+  md += `本体 mic.js と同じ区切り（0.7 秒あいたら切る、前 0.25 秒・後 0.12 秒）の塊ごとに、本体と同じ \`analyzeSamples()\` を掛け直して \`feats.lvlDrop\`（塊の中でいちばん大きい声から各声が何 dB 下かの中央値）を取った。2 回以上鳴いた塊だけ（1 回の塊は測れないので本体も 0）。「そろっている」= ${evenMax} dB 以下（設計メモ 5 の \`uneven\` が 0 になる側）、「ばらつく」= ${unevenMin} dB 以上（\`uneven\` が 1 になる側）。\n\n`;
+  md += `| 音 | 本 | 塊 | 2 回以上の塊 | 中央値 dB | 25–75% | 最大 | そろっている ≤${evenMax} | >${midDb} | ばらつく ≥${unevenMin} |\n|---|---|---|---|---|---|---|---|---|---|\n`;
+  md += line('ESC-50 吠え（基準）', dogs);
+  const cc0 = rows.filter(r => r.source === 'CC0' && has(r)).sort((a, b) => a.file.localeCompare(b.file));
+  for (const r of cc0) md += line(r.file, [r]);
+  const otherCats = [...new Set(rows.filter(r => r.source === 'ESC-50' && r.category !== 'dog' && has(r)).map(r => r.category))].sort();
+  for (const cat of otherCats) md += line(`犬以外: ${cat}`, rows.filter(r => r.source === 'ESC-50' && r.category === cat && has(r)));
+  // ファイル全体（5 秒）の値と並べる: 塊にすると吠えがどれだけ「そろう」側に寄るか
+  const whole = dogs.filter(r => r.n >= 2 && Number.isFinite(r.lvlDrop)).map(r => r.lvlDrop);
+  const d = drops(dogs);
+  md += `\n- ESC-50 の吠え: ファイル全体（5 秒、2 回以上鳴いた ${whole.length} 本）の中央値 ${whole.length ? f1(q(whole, 0.5)) : '—'} dB → 塊ごと（${d.length} 塊）の中央値 ${f1(q(d, 0.5))} dB、>${midDb} dB の割合 ${share(whole, v => v > midDb)} → ${share(d, v => v > midDb)}。`;
+  md += cc0.length ? `\n- CC0 の 5 本（くんくん・うなり・息・大型犬・小型犬）は上の行。くんくん・うなり の塊が吠えの 25–75% の上（${f1(q(d, 0.75))} dB）より大きければ、塊単位でも「小さい声が混ざる」が見えている。` : `\n- CC0 の 5 本（くんくん・うなり・息・大型犬・小型犬）はこの実行では取れていない（Hugging Face に届かない環境。Actions の lab-yamnet では届く）。`;
+  md += `\n- 注意: ESC-50 は 5 秒で切られたクリップなので、塊の数は本体の連続監視より少なめ。CC0 は 1 種類 1 本（1 頭）。\n`;
+  return md + '\n';
+}

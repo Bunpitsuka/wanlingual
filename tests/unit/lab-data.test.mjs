@@ -146,3 +146,32 @@ test('MFCC の表: ESC-50 吠えの平均±σ を基準に、CC0 と犬以外で
   assert.equal(mfccReport([rows[0], ...rows.slice(4)]), '', '吠えが 1 本では σ が出ないので空');
   assert.match(mfccReport(rows.filter(r => r.source !== 'CC0')), /CC0 の 5 本.*はこの実行では取れていない/);
 });
+
+test('塊ごとの lvlDrop の表: ESC-50 吠えの塊（2 回以上）の分布と、そろっている ≤1.5／ばらつく ≥5.5 の割合。CC0・犬以外は行ごと。吠えの塊が無ければ空', async () => {
+  const { lvlDropReport } = await import('../lab/report.mjs');
+  const c = (n, lvlDrop) => ({ start: 0, end: 1, n, lvlDrop });
+  const rows = [
+    // 吠え 2 本: 2 回以上の塊が 4 つ（0.5 / 1.0 / 3.0 / 6.0 dB）、1 回だけの塊が 1 つ（数えない）。ファイル全体は 2.0 / 4.5
+    { file: 'd1', category: 'dog', source: 'ESC-50', n: 3, lvlDrop: 2.0, clusterDrops: [c(2, 0.5), c(3, 1.0), c(1, 0)] },
+    { file: 'd2', category: 'dog', source: 'ESC-50', n: 4, lvlDrop: 4.5, clusterDrops: [c(2, 3.0), c(2, 6.0)] },
+    // くんくん 相当: 塊 2 つとも小さい声が混ざる（5.0 / 7.0。≥5.5 は 7.0 だけ → 50%）
+    { file: 'whimper.wav', category: 'dog(cc0)', source: 'CC0', n: 6, lvlDrop: 6.0, clusterDrops: [c(3, 5.0), c(3, 7.0)] },
+    // 息 相当: 塊はあるが全部 1 回ずつ → 測れない
+    { file: 'pant.wav', category: 'dog(cc0)', source: 'CC0', n: 2, lvlDrop: 0, clusterDrops: [c(1, 0), c(1, 0)] },
+    { file: 'c1', category: 'cat', source: 'ESC-50', n: 2, lvlDrop: 1.0, clusterDrops: [c(2, 1.0)] },
+    { file: 'old', category: 'dog', source: 'ESC-50', n: 1 }, // clusterDrops の無い古い行は無視
+  ];
+  const md = lvlDropReport(rows);
+  // 吠え: 2 本・塊 5・2 回以上 4。0.5/1.0/3.0/6.0 → 中央値（floor(0.5*4)=2 番目）3.0、25% 1.0、75% 6.0、最大 6.0。≤1.5 は 2/4=50%、>4 は 1/4=25%、≥5.5 は 25%
+  assert.match(md, /\| ESC-50 吠え（基準） \| 2 \| 5 \| 4 \| 3\.0 \| 1\.0–6\.0 \| 6\.0 \| 50% \| 25% \| 25% \|/);
+  assert.match(md, /\| whimper\.wav \| 1 \| 2 \| 2 \| 7\.0 \| 5\.0–7\.0 \| 7\.0 \| 0% \| 100% \| 50% \|/);
+  assert.match(md, /\| pant\.wav \| 1 \| 2 \| 0 \| — \| — \| — \| — \| — \| — \|/);
+  assert.match(md, /\| 犬以外: cat \| 1 \| 1 \| 1 \| 1\.0 \| 1\.0–1\.0 \| 1\.0 \| 100% \| 0% \| 0% \|/);
+  // ファイル全体 → 塊: 全体は 2.0 / 4.5（中央値 = 2 番目 4.5、>4 は 50%）→ 塊は 3.0、25%
+  assert.match(md, /ファイル全体（5 秒、2 回以上鳴いた 2 本）の中央値 4\.5 dB → 塊ごと（4 塊）の中央値 3\.0 dB、>4 dB の割合 50% → 25%/);
+  assert.match(md, /吠えの 25–75% の上（6\.0 dB）/);
+  assert.doesNotMatch(md, /\| old \|/);
+  assert.equal(lvlDropReport(rows.filter(r => r.category !== 'dog')), '');
+  assert.equal(lvlDropReport([{ file: 'd', category: 'dog', source: 'ESC-50', n: 1, lvlDrop: 0, clusterDrops: [c(1, 0)] }]), '', '吠えの塊が 1 回ずつなら空');
+  assert.match(lvlDropReport(rows.filter(r => r.source !== 'CC0')), /CC0 の 5 本.*はこの実行では取れていない/);
+});

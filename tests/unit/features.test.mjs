@@ -158,3 +158,26 @@ test('levelDrop（純粋関数）: 最大の声からの dB 差の中央値。2 
   assert.deepEqual(rules(f), rules(without), 'ルールは lvlDrop を見ない（(i) では判定を変えない）');
   assert.deepEqual(predict(f, []), predict(without, []));
 });
+
+test('#13b (ii) の準備: lvlDrop の無い古いサンプルと有る新しいサンプルを混ぜても、kNN の近い順・判定は変わらない（vec() はまだ 7 次元）', () => {
+  // 固定の特徴量（乱数は使わない）。old は 2026-11-15 より前に保存された 7 つの数字だけのサンプル
+  const base = { n: 4, dur: 0.15, gap: 0.5, f0: 650, cent: 1500, gapCv: 0.6, durCv: 0.2 };
+  const old = (label, dn) => ({ label, f: { ...base, n: base.n + dn } });
+  const fresh = (label, dn, lvlDrop) => ({ label, f: { ...base, n: base.n + dn, lvlDrop } });
+  const olds = [old('demand', 0), old('demand', 1), old('play', 3), old('alarm', 5), old('lonely', 8)];
+  // 同じ 7 つの数字に lvlDrop だけ足した「新しい」サンプル（くんくん相当の 6 dB も混ぜる）
+  const mixed = [olds[0], fresh('demand', 1, 0.3), olds[2], fresh('alarm', 5, 6.0), fresh('lonely', 8, 1.2)];
+  const q = { ...base, n: 4.4, lvlDrop: 5.0 }; // 判定する塊（新しい形）
+  const qOld = { ...base, n: 4.4 };            // 同じ塊を古い形で
+  // 近い順（ラベルと距離）が一致: lvlDrop は距離に入っていない
+  assert.deepEqual(neighbors(q, mixed), neighbors(qOld, olds));
+  assert.deepEqual(neighbors(q, mixed).map(e => e.l), ['demand', 'demand', 'play', 'alarm', 'lonely']);
+  assert.deepEqual(knn(q, mixed), knn(qOld, olds));
+  assert.deepEqual(predict(q, mixed), predict(qOld, olds));
+  // (ii) で vec() に lvlDrop を足すときの約束（設計メモ 3・4）: 無いサンプルは 0 として読む。
+  // いまの vec() は lvlDrop を見ないので、undefined でも 0 でも同じ距離になることを先に固定しておく
+  const zero = mixed.map(s => ({ ...s, f: { ...s.f, lvlDrop: s.f.lvlDrop ?? 0 } }));
+  assert.deepEqual(neighbors(q, zero), neighbors(q, mixed));
+  // store.js の importJSON と同じ検査（typeof f.n === 'number'）は、キーが増えても通る
+  for (const s of mixed) assert.equal(typeof s.f.n, 'number');
+});

@@ -28,8 +28,8 @@ tests/
   e2e/               Playwright（Android / iPhone 相当のエミュレーション、偽マイク）
   fixtures/          合成した吠え声 WAV
   lab/               試作の確認スクリプト（GitHub Actions lab-yamnet で実行）。fetch-data.mjs が ESC-50 等の検証データを
-                     tests/lab/data/ に落とす（gitignore。NC ライセンスなので検証のみ）。features-check.mjs は本体の検出器、
-                     yamnet-check.mjs は YAMNet に本物の音を通して表を出す（ファイル全体、本体と同じ「吠えの塊」ごと、
+                     tests/lab/data/ に落とす（gitignore。NC ライセンスなので検証のみ）。features-check.mjs は本体の検出器
+                     （ファイル全体と、本体と同じ塊ごとの lvlDrop・MFCC の表も）、yamnet-check.mjs は YAMNet に本物の音を通して表を出す（ファイル全体、本体と同じ「吠えの塊」ごと、
                      塊を前後に広げて最低 2〜3 秒にしたもの）。
                      dogcheck-probe.mjs は本体の dogcheck.js を本体のページの中で本物の tfjs・モデルに通す。
                      sri-check.mjs は CDN の tf.min.js のハッシュが app/lab/yamnet.js の TFJS_SRI と一致するか確かめる
