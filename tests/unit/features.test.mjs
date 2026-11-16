@@ -159,25 +159,56 @@ test('levelDrop（純粋関数）: 最大の声からの dB 差の中央値。2 
   assert.deepEqual(predict(f, []), predict(without, []));
 });
 
-test('#13b (ii) の準備: lvlDrop の無い古いサンプルと有る新しいサンプルを混ぜても、kNN の近い順・判定は変わらない（vec() はまだ 7 次元）', () => {
+test('#13b (ii): vec() は 8 次元。lvlDrop の無い古いサンプルは 0 として読み（undefined と 0 で同じ距離）、古いサンプル同士の近い順・距離は 7 次元のときと変わらない', async () => {
+  const { vec } = await import('../../app/js/classify.js');
   // 固定の特徴量（乱数は使わない）。old は 2026-11-15 より前に保存された 7 つの数字だけのサンプル
   const base = { n: 4, dur: 0.15, gap: 0.5, f0: 650, cent: 1500, gapCv: 0.6, durCv: 0.2 };
   const old = (label, dn) => ({ label, f: { ...base, n: base.n + dn } });
   const fresh = (label, dn, lvlDrop) => ({ label, f: { ...base, n: base.n + dn, lvlDrop } });
   const olds = [old('demand', 0), old('demand', 1), old('play', 3), old('alarm', 5), old('lonely', 8)];
-  // 同じ 7 つの数字に lvlDrop だけ足した「新しい」サンプル（くんくん相当の 6 dB も混ぜる）
+  const qOld = { ...base, n: 4.4 }; // 判定する塊を古い形で
+  // 8 次元で、8 本目は 0〜1（12 dB で 1）。無ければ 0
+  assert.equal(vec(qOld).length, 8);
+  assert.equal(vec(qOld)[7], 0);
+  assert.equal(vec({ ...base, lvlDrop: 6 })[7], 0.5);
+  assert.equal(vec({ ...base, lvlDrop: 20 })[7], 1, '12 dB で頭打ち');
+  assert.deepEqual(vec(qOld).slice(0, 7), vec({ ...base, n: 4.4, lvlDrop: 6 }).slice(0, 7), '既存の 7 本は触らない');
+  // 古いサンプル同士: 8 本目が全部 0 なので、距離は 7 次元のときと同じ（ここでは n だけ違うので |Δn|/12）
+  const nn = neighbors(qOld, olds);
+  assert.deepEqual(nn.map(e => e.l), ['demand', 'demand', 'play', 'alarm', 'lonely']);
+  for (const [i, dn] of [0.4, 0.6, 2.6, 4.6, 7.6].entries()) assert.ok(Math.abs(nn[i].d - dn / 12) < 1e-12, `距離 ${i}: ${nn[i].d}`);
+  // 約束（設計メモ 3）: lvlDrop が undefined でも 0 でも同じ距離・同じ判定
   const mixed = [olds[0], fresh('demand', 1, 0.3), olds[2], fresh('alarm', 5, 6.0), fresh('lonely', 8, 1.2)];
-  const q = { ...base, n: 4.4, lvlDrop: 5.0 }; // 判定する塊（新しい形）
-  const qOld = { ...base, n: 4.4 };            // 同じ塊を古い形で
-  // 近い順（ラベルと距離）が一致: lvlDrop は距離に入っていない
-  assert.deepEqual(neighbors(q, mixed), neighbors(qOld, olds));
-  assert.deepEqual(neighbors(q, mixed).map(e => e.l), ['demand', 'demand', 'play', 'alarm', 'lonely']);
-  assert.deepEqual(knn(q, mixed), knn(qOld, olds));
-  assert.deepEqual(predict(q, mixed), predict(qOld, olds));
-  // (ii) で vec() に lvlDrop を足すときの約束（設計メモ 3・4）: 無いサンプルは 0 として読む。
-  // いまの vec() は lvlDrop を見ないので、undefined でも 0 でも同じ距離になることを先に固定しておく
+  const q = { ...base, n: 4.4, lvlDrop: 5.0 };
   const zero = mixed.map(s => ({ ...s, f: { ...s.f, lvlDrop: s.f.lvlDrop ?? 0 } }));
   assert.deepEqual(neighbors(q, zero), neighbors(q, mixed));
+  assert.deepEqual(knn(q, zero), knn(q, mixed));
+  assert.deepEqual(predict(q, zero), predict(q, mixed));
+  // 判定する塊の lvlDrop が無い（古い形）なら 0 で読むので、lvlDrop: 0 を付けたものと同じ
+  assert.deepEqual(neighbors(qOld, mixed), neighbors({ ...qOld, lvlDrop: 0 }, mixed));
   // store.js の importJSON と同じ検査（typeof f.n === 'number'）は、キーが増えても通る
   for (const s of mixed) assert.equal(typeof s.f.n, 'number');
+});
+
+test('#13b (ii): lvlDrop が kNN の距離に効く。7 つの数字が同じなら「小さい声が混ざる」サンプルの方が くんくん相当の塊に近い。ルール（rules）は lvlDrop を見ない', () => {
+  const base = { n: 4, dur: 0.15, gap: 0.5, f0: 650, cent: 1500, gapCv: 0.6, durCv: 0.2 };
+  const q = { ...base, lvlDrop: 5.0 }; // くんくん相当（CC0 の塊 5.0〜5.5 dB）
+  const samples = [
+    { label: 'demand', f: { ...base } },               // 古い形（0 扱い）
+    { label: 'alarm',  f: { ...base, lvlDrop: 0.4 } }, // そろった吠え
+    { label: 'lonely', f: { ...base, lvlDrop: 5.5 } }, // 小さい声が混ざる
+  ];
+  const nn = neighbors(q, samples);
+  assert.equal(nn[0].l, 'lonely');
+  assert.ok(Math.abs(nn[0].d - 0.5 / 12) < 1e-12, 'lonely との距離 = |5.5 − 5.0| / 12');
+  assert.ok(Math.abs(nn[2].d - 5.0 / 12) < 1e-12, '古い形（0）との距離 = 5.0 / 12');
+  assert.equal(nn[1].l, 'alarm');
+  // 距離重み kNN は lonely が最大。ルールは lvlDrop の有無で同じ（(iii) はまだ）
+  const k = knn(q, samples);
+  assert.ok(k.lonely > k.alarm && k.alarm > k.demand, JSON.stringify(k));
+  const { lvlDrop, ...without } = q;
+  assert.deepEqual(rules(q), rules(without));
+  // explain() の kNN の 1 行は 8 次元でも出る（E2E の「教えてもらった似た声」の確認と同じ）
+  const why = explain(q, 'lonely', samples);
+  assert.ok(why.some(s => s.includes('教えてもらった似た声 3件のうち 1件が「さみしい」')), why.join(' / '));
 });

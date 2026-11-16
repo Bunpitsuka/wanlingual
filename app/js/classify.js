@@ -92,12 +92,18 @@ export function explain(f, k, samples, max = 3) {
   return out;
 }
 
-/** 特徴量 → 正規化ベクトル（kNN 用） */
+/**
+ * 特徴量 → 正規化ベクトル（kNN 用。8 次元）。
+ * 8 本目の lvlDrop（声の大小のばらつき、dB。plan #13b (ii)）は 12 dB で 1（息のパンティング 12.8 dB が上限の目安）。
+ * 2026-11-15 より前に保存した古いサンプルには lvlDrop が無いので 0（＝そろった吠えと同じ側）として読む。
+ * ルール（terms / rules）は lvlDrop をまだ見ない。kNN は飼い主が教えた声が 3 件以上あるときだけ効く。
+ */
 export function vec(f) {
   return [
     clamp(f.n, 0, 12) / 12, clamp(f.dur, 0, 1.5) / 1.5, clamp(f.gap, 0, 2) / 2,
     clamp(f.f0, 0, 1200) / 1200, clamp(f.cent, 0, 5000) / 5000,
     clamp(f.gapCv, 0, 1.5) / 1.5, clamp(f.durCv, 0, 1.5) / 1.5,
+    clamp(f.lvlDrop ?? 0, 0, 12) / 12,
   ];
 }
 
