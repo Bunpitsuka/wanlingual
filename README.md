@@ -3,7 +3,7 @@
 犬の鳴き声から気持ちを**推測**して、飼い主が正解を教えると「うちの子専用」に育つスマホ用 PWA。本物の翻訳ではない。
 
 - 指示書: リポジトリ直下の `WANLINGUAL_BRIEF.md`（社長作成）と `WANLINGUAL_ADDENDUM.md`（技術補足）
-- 計画と進捗: `docs/plan.md` ／ 公開手順: `docs/deploy.md` ／ 精度記録: `docs/accuracy.md` ／ データセット調査: `docs/datasets.md` ／ 日報: `docs/daily/`
+- 計画と進捗: `docs/plan.md` ／ 公開手順: `docs/deploy.md` ／ 精度記録: `docs/accuracy.md` ／ 収益化の目途: `docs/monetization.md` ／ データセット調査: `docs/datasets.md` ／ 日報: `docs/daily/`
 - 出発点: `prototypes/`（claude.ai の Artifact から取り出した試作2本。**参照用。実装は `app/`**）
 
 ## 構成
