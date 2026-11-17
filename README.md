@@ -32,7 +32,8 @@ tests/
                      （ファイル全体と、本体と同じ塊ごとの lvlDrop・MFCC の表も）、yamnet-check.mjs は YAMNet に本物の音を通して表を出す（ファイル全体、本体と同じ「吠えの塊」ごと、
                      塊を前後に広げて最低 2〜3 秒にしたもの）。
                      dogcheck-probe.mjs は本体の dogcheck.js を本体のページの中で本物の tfjs・モデルに通す。
-                     sri-check.mjs は CDN の tf.min.js のハッシュが app/lab/yamnet.js の TFJS_SRI と一致するか確かめる
+                     sri-check.mjs は CDN の tf.min.js のハッシュが app/lab/yamnet.js の TFJS_SRI と一致するか確かめる。
+                     highlights.mjs は最後に「今夜の要点」3 行（吠え検出率・塊の犬らしさ・くんくん／うなり が吠えから離れたか）を Summary と注釈に出す
 tools/og-image.mjs   OGP 画像（app/icons/og.png）の生成。mascot.js の絵と本体の色・フォントで HTML を組み、Playwright の Chromium で撮る
 tools/screenshots.mjs  docs/screenshots/ を E2E の絵（tests/e2e/screenshots/）から更新する（`npm run test:e2e && npm run shots`）
 tools/mfcc-bench.mjs   plan #13 の下調べ: ライブラリ無しの自前 MFCC（13 次元）の手順と、1 秒あたりの処理時間の計測（`node tools/mfcc-bench.mjs`。本体には入れていない。

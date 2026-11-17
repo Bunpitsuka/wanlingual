@@ -256,3 +256,74 @@ export function lvlDropReport(rows, { evenMax = 1.5, unevenMin = 5.5, midDb = 4 
   md += `\n- 注意: ESC-50 は 5 秒で切られたクリップなので、塊の数は本体の連続監視より少なめ。CC0 は 1 種類 1 本（1 頭）。\n`;
   return md + '\n';
 }
+
+/**
+ * 「今夜の要点」3 行（2026-11-18）。lab-yamnet の Summary は表が 10 枚近くあって、毎晩どこを見ればいいか分かりにくいので、
+ * features-check.mjs（out/features-result.json）と yamnet-check.mjs（out/yamnet-result.json）の生データから
+ * (1) 本体の吠え検出率、(2) 塊の犬らしさ（しきい値・最低 2 秒で、本体 dogcheck.js と同じ条件）、
+ * (3) くんくん／うなり が吠えから離れたか（塊ごとの lvlDrop と MFCC）を 3 行にまとめる。
+ * featRows / yamRows のどちらかが無ければ、その行は「未実行」と書く（workflow の最後に if: always() で走らせる）。
+ * くんくん・うなり はファイル名（whimper / growl）で見つける（pet-decoder-audio-fixtures の 5 本）。
+ * 戻り値: { md, lines }（md は Markdown、lines は 3 行の配列。Actions の ::notice 用）
+ */
+export function highlightsReport(featRows, yamRows, { threshold = 0.3, minSec = 2, zMin = 2, nCoef = 12 } = {}) {
+  const pct = (a, b) => b ? `${a}/${b}（${Math.round(a / b * 100)}%）` : '—';
+  const q = (arr, p) => { const s = [...arr].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
+  const f1 = v => v.toFixed(1);
+  const isDog = r => r.category.startsWith('dog');
+  const lines = [];
+  // (1) 吠え検出率
+  const fr = Array.isArray(featRows) ? featRows : [];
+  if (!fr.length) lines.push('吠え検出: 未実行（features-check の結果が無い）');
+  else {
+    const dogs = fr.filter(isDog), others = fr.filter(r => r.source === 'ESC-50' && !isDog(r));
+    const srcs = [...new Set(dogs.map(r => r.source))].join('+');
+    lines.push(`吠え検出（本体 features.js、音量だけ）: 本物の犬 ${pct(dogs.filter(r => r.n > 0).length, dogs.length)}${srcs ? `（${srcs}）` : ''} を拾い、犬以外 ${pct(others.filter(r => r.n > 0).length, others.length)} も「吠え」として拾う（これが犬の声チェックで除外したい分）`);
+  }
+  // (2) 塊の犬らしさ（本体と同じ: 前を足して最低 minSec 秒、しきい値 threshold）
+  const yr = Array.isArray(yamRows) ? yamRows.filter(r => Array.isArray(r.clusters)) : [];
+  if (!yr.length) lines.push('塊の犬らしさ: 未実行（yamnet-check の結果が無い。読み込み失敗か、ネットに出られない環境）');
+  else {
+    const get = r => r.clustersMin?.[String(minSec)] || r.clusters;
+    const used = yr.some(r => r.clustersMin?.[String(minSec)]) ? `前を足して最低 ${minSec} 秒` : '塊そのまま';
+    const dogs = yr.filter(isDog), others = yr.filter(r => r.source === 'ESC-50' && !isDog(r));
+    const dc = dogs.flatMap(get), oc = others.flatMap(get);
+    const drop = dogs.filter(r => get(r).length && get(r).every(c => c.dog < threshold)).map(r => r.file.replace(/\.wav$/, ''));
+    lines.push(`塊の犬らしさ（本体 dogcheck.js と同じ条件: ${used}、しきい値 ${threshold}）: 犬の塊 ${pct(dc.filter(c => c.dog >= threshold).length, dc.length)} を「犬」、犬以外の塊 ${pct(oc.filter(c => c.dog >= threshold).length, oc.length)} を誤って「犬」。塊が全部落ちる犬の本: ${drop.length ? drop.join('、') : 'なし'}`);
+  }
+  // (3) くんくん／うなり は吠えから離れたか（塊ごとの lvlDrop、MFCC）
+  if (!fr.length) lines.push('くんくん／うなり vs 吠え: 未実行');
+  else {
+    const whimper = fr.find(r => r.source === 'CC0' && /whimper/i.test(r.file));
+    const growl = fr.find(r => r.source === 'CC0' && /growl/i.test(r.file));
+    if (!whimper && !growl) lines.push('くんくん／うなり vs 吠え: CC0 5 本がこの実行では取れていない（Hugging Face に届かない環境）');
+    else {
+      const esc = fr.filter(r => r.source === 'ESC-50' && r.category === 'dog');
+      const drops = list => list.flatMap(r => (r.clusterDrops || []).filter(c => c.n >= 2).map(c => c.lvlDrop));
+      const bd = drops(esc);
+      const q75 = bd.length ? q(bd, 0.75) : null;
+      const lvl = r => {
+        const d = drops([r]); if (!d.length) return '塊が 1 回ずつで測れず';
+        const m = q(d, 0.5);
+        return `${f1(m)} dB（${q75 == null ? '基準無し' : m > q75 ? '吠えの 75% 点より上＝離れた' : '吠えと重なる'}）`;
+      };
+      // MFCC: ESC-50 吠えの平均±σ からの z（mfccReport と同じ計算）
+      const has = r => r.mfcc && r.mfcc.frames > 0 && Array.isArray(r.mfcc.mean) && r.mfcc.mean.length > nCoef;
+      const md = esc.filter(has);
+      const far = r => {
+        if (md.length < 2 || !has(r)) return '—';
+        const out = [];
+        for (let i = 1; i <= nCoef; i++) {
+          const v = md.map(x => x.mfcc.mean[i]); const mu = v.reduce((a, b) => a + b, 0) / v.length;
+          const sd = Math.sqrt(v.reduce((a, b) => a + (b - mu) ** 2, 0) / v.length);
+          const z = sd > 1e-9 ? (r.mfcc.mean[i] - mu) / sd : 0;
+          if (Math.abs(z) >= zMin) out.push(`c${i}(${z > 0 ? '+' : '−'}${Math.abs(z).toFixed(1)}σ)`);
+        }
+        return out.join(' ') || 'なし';
+      };
+      const part = (name, r) => r ? `${name} lvlDrop ${lvl(r)}、MFCC で吠えから離れた係数 ${far(r)}` : `${name} 無し`;
+      lines.push(`くんくん／うなり vs 吠え（ESC-50 ${esc.length} 本、塊ごとの lvlDrop 中央値 ${bd.length ? f1(q(bd, 0.5)) : '—'} dB・75% 点 ${q75 == null ? '—' : f1(q75)} dB）: ${part('くんくん', whimper)}／${part('うなり', growl)}`);
+    }
+  }
+  return { lines, md: `### 今夜の要点\n\n${lines.map(l => `- ${l}`).join('\n')}\n\n` };
+}

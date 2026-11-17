@@ -29,6 +29,9 @@ jobs:
         run: node tests/lab/sri-check.mjs
       - name: YAMNet に通す（犬らしさ、しきい値表）
         run: node tests/lab/yamnet-check.mjs
+      - name: 今夜の要点 3 行（吠え検出率・塊の犬らしさ・くんくん／うなり が吠えから離れたか。Summary の最後と注釈に）
+        if: always()
+        run: node tests/lab/highlights.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

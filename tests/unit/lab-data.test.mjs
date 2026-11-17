@@ -175,3 +175,49 @@ test('塊ごとの lvlDrop の表: ESC-50 吠えの塊（2 回以上）の分布
   assert.equal(lvlDropReport([{ file: 'd', category: 'dog', source: 'ESC-50', n: 1, lvlDrop: 0, clusterDrops: [c(1, 0)] }]), '', '吠えの塊が 1 回ずつなら空');
   assert.match(lvlDropReport(rows.filter(r => r.source !== 'CC0')), /CC0 の 5 本.*はこの実行では取れていない/);
 });
+
+test('今夜の要点 3 行: 吠え検出率、塊の犬らしさ（最低 2 秒・0.3）、くんくん／うなり の lvlDrop と MFCC が吠えから離れたか。結果が無い行は「未実行」', async () => {
+  const { highlightsReport } = await import('../lab/report.mjs');
+  const c = (n, lvlDrop) => ({ start: 0, end: 1, n, lvlDrop });
+  const mf = (c3, c4 = -8) => ({ frames: 100, mean: [30, 18, -7, c3, c4, 0, -4, 0.6, -2, 1, -1.5, 1.3, -0.8] });
+  // 吠え 3 本（うち 1 本は拾えず n=0 で MFCC も無い → 基準は d1・d2 の 2 本）。c3 は -5 / -1 → 平均 -3、σ 2
+  const feat = [
+    { file: 'd1.wav', category: 'dog', source: 'ESC-50', n: 3, clusterDrops: [c(2, 0.5), c(3, 1.0)], mfcc: mf(-5) },
+    { file: 'd2.wav', category: 'dog', source: 'ESC-50', n: 4, clusterDrops: [c(2, 3.0), c(2, 6.0)], mfcc: mf(-1) },
+    { file: 'd3.wav', category: 'dog', source: 'ESC-50', n: 0, clusterDrops: [], mfcc: { frames: 0, mean: [] } },
+    { file: 'c1.wav', category: 'cat', source: 'ESC-50', n: 1, clusterDrops: [c(1, 0)], mfcc: mf(0) },
+    { file: 'c2.wav', category: 'cat', source: 'ESC-50', n: 0, clusterDrops: [], mfcc: { frames: 0, mean: [] } },
+    // くんくん: 塊 5.0 / 7.0 → 中央値 7.0（吠えの 75% 点 6.0 より上）。c3 = 8 → z = (8 + 3) / 2 = +5.5σ
+    { file: 'dog_whimper.wav', category: 'dog(cc0)', source: 'CC0', n: 6, clusterDrops: [c(3, 5.0), c(3, 7.0)], mfcc: mf(8) },
+    // うなり: 2.4 → 吠えと重なる。c3 = -2 → 離れた係数なし
+    { file: 'dog_growl_play.wav', category: 'dog(cc0)', source: 'CC0', n: 3, clusterDrops: [c(3, 2.4)], mfcc: mf(-2) },
+  ];
+  const k = dog => ({ dog });
+  const yam = [
+    { file: 'd1.wav', category: 'dog', source: 'ESC-50', clusters: [k(0.9), k(0.2)], clustersMin: { 2: [k(0.95), k(0.6)], 3: [k(0.9), k(0.7)] } },
+    { file: 'dog_whimper.wav', category: 'dog(cc0)', source: 'CC0', clusters: [k(0.01), k(0.02)], clustersMin: { 2: [k(0.01), k(0.02)], 3: [k(0.01), k(0.02)] } },
+    { file: 'c1.wav', category: 'cat', source: 'ESC-50', clusters: [k(0.0), k(0.5)], clustersMin: { 2: [k(0.0), k(0.1)], 3: [k(0.0), k(0.4)] } },
+    { file: 'bark4.wav', category: '合成', source: 'fixtures', dog: 0.01 }, // clusters の無い行は数えない
+  ];
+  const { md, lines } = highlightsReport(feat, yam);
+  assert.equal(lines.length, 3);
+  assert.match(md, /^### 今夜の要点\n\n- /);
+  // (1) 犬 3 本のうち拾えた 2（dog + dog(cc0) の 4 本中 n>0 は d1・d2・whimper・growl → 4/5）、犬以外 1/2
+  assert.match(lines[0], /本物の犬 4\/5（80%）（ESC-50\+CC0） を拾い、犬以外 1\/2（50%） も「吠え」として拾う/);
+  // (2) 最低 2 秒・0.3: 犬の塊 0.95/0.6/0.01/0.02 → 2/4、犬以外 0.0/0.1 → 0/2、全部落ちる本 dog_whimper
+  assert.match(lines[1], /前を足して最低 2 秒、しきい値 0\.3/);
+  assert.match(lines[1], /犬の塊 2\/4（50%） を「犬」、犬以外の塊 0\/2（0%） を誤って「犬」。塊が全部落ちる犬の本: dog_whimper$/);
+  // (3) 吠えの塊 0.5/1.0/3.0/6.0 → 中央値 3.0、75% 点 6.0。くんくん 7.0 は上、うなり 2.4 は重なる。MFCC は くんくん c3(+5.5σ)、うなり なし（c3 = -2 → z = -0.5）
+  assert.match(lines[2], /ESC-50 3 本、塊ごとの lvlDrop 中央値 3\.0 dB・75% 点 6\.0 dB/);
+  assert.match(lines[2], /くんくん lvlDrop 7\.0 dB（吠えの 75% 点より上＝離れた）、MFCC で吠えから離れた係数 c3\(\+5\.5σ\)/);
+  assert.match(lines[2], /うなり lvlDrop 2\.4 dB（吠えと重なる）、MFCC で吠えから離れた係数 なし/);
+  // 塊そのまま（clustersMin 無し）でも動く: 犬の塊 0.9/0.2/0.01/0.02 → 1/4、犬以外 0.0/0.5 → 1/2
+  const plain = highlightsReport(feat, yam.map(r => ({ ...r, clustersMin: undefined })));
+  assert.match(plain.lines[1], /塊そのまま、しきい値 0\.3）: 犬の塊 1\/4（25%） を「犬」、犬以外の塊 1\/2（50%）/);
+  // 結果が無い側は「未実行」、CC0 が無ければその旨
+  assert.match(highlightsReport(null, yam).lines[0], /^吠え検出: 未実行/);
+  assert.match(highlightsReport(null, yam).lines[2], /^くんくん／うなり vs 吠え: 未実行/);
+  assert.match(highlightsReport(feat, null).lines[1], /^塊の犬らしさ: 未実行/);
+  assert.match(highlightsReport(feat.filter(r => r.source !== 'CC0'), yam).lines[2], /CC0 5 本がこの実行では取れていない/);
+  assert.match(highlightsReport(feat, yam, { threshold: 0.5 }).lines[1], /しきい値 0\.5）: 犬の塊 2\/4/);
+});
