@@ -145,6 +145,21 @@ test('MFCC の表: ESC-50 吠えの平均±σ を基準に、CC0 と犬以外で
   assert.equal(mfccReport(rows.filter(r => r.category !== 'dog')), '');
   assert.equal(mfccReport([rows[0], ...rows.slice(4)]), '', '吠えが 1 本では σ が出ないので空');
   assert.match(mfccReport(rows.filter(r => r.source !== 'CC0')), /CC0 の 5 本.*はこの実行では取れていない/);
+  assert.doesNotMatch(md, /サンプリング周波数/, 'sr が無い古い結果には sr の注意を出さない');
+});
+
+test('MFCC の表の sr の注意（2026-11-19）: 基準と CC0 の sr が同じなら一言、違う本があれば名指しで警告', async () => {
+  const { mfccReport, mfccSrNote } = await import('../lab/report.mjs');
+  const bark = (i, sr) => ({ file: `d${i}`, category: 'dog', source: 'ESC-50', sr, mfcc: { frames: 100, mean: [50, 10 + 2 * i, ...Array.from({ length: 11 }, () => (i % 2 ? 1 : -1))] } });
+  const cc0 = (file, sr) => ({ file, category: 'dog(cc0)', source: 'CC0', sr, mfcc: { frames: 30, mean: Array(13).fill(0) } });
+  const same = mfccReport([bark(1, 44100), bark(2, 44100), cc0('whimper.wav', 44100), cc0('growl.wav', 44100)]);
+  assert.match(same, /- サンプリング周波数: 基準の吠え 44\.1 kHz、CC0 growl\.wav 44\.1 kHz、whimper\.wav 44\.1 kHz。基準と CC0 の sr は同じ/);
+  const diff = mfccReport([bark(1, 44100), bark(2, 44100), cc0('whimper.wav', 16000), cc0('growl.wav', 44100)]);
+  assert.match(diff, /\*\*whimper\.wav は基準と sr が違う\*\*.*16 kHz に落としてから/);
+  assert.doesNotMatch(diff, /growl\.wav は基準と sr が違う/);
+  assert.equal(mfccSrNote([{ file: 'd1' }], [cc0('x.wav', 16000)]), '', '基準に sr が無ければ出さない');
+  assert.match(mfccSrNote([bark(1, 44100)], []), /基準の吠え 44\.1 kHz。基準と CC0 の sr は同じ/);
+  assert.match(mfccSrNote([bark(1, 44100)], [{ file: 'y.wav', source: 'CC0' }]), /y\.wav 不明。基準と CC0 の sr は同じ/, 'sr 不明の本は違うとは言わない');
 });
 
 test('塊ごとの lvlDrop の表: ESC-50 吠えの塊（2 回以上）の分布と、そろっている ≤1.5／ばらつく ≥5.5 の割合。CC0・犬以外は行ごと。吠えの塊が無ければ空', async () => {

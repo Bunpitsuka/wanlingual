@@ -391,6 +391,9 @@ test.describe('犬の声チェック（既定オフ）', () => {
     await expect(toggle).not.toBeChecked();            // 既定はオフ
     await expect(page.locator('#dogcheckState')).toHaveText('');
     expect(await page.evaluate(() => localStorage.getItem('wl.dogcheck'))).toBeNull();
+    // 説明文に「くんくん・息は落ちやすい → 教えれば覚える」の一言がある（2026-11-19）
+    await expect(page.locator('#settings .switch .text small')).toContainText('くんくん');
+    await expect(page.locator('#settings .switch .text small')).toContainText('教えれば覚えます');
 
     // 監視を始めてから、トグルでオンにする → その場で読み込みが始まる
     await page.locator('#micBtn').click();

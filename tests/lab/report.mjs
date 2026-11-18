@@ -213,7 +213,28 @@ export function mfccReport(rows, { zMin = 2, nCoef = 12 } = {}) {
   md += cc0.length ? `\n- CC0 ${cc0.length} 本のうち、吠えから |z| ≥ ${zMin} 離れた係数が 1 つ以上ある本: **${cc0Far}/${cc0.length}**` : `\n- CC0 の 5 本（くんくん・うなり・息・大型犬・小型犬）はこの実行では取れていない（Hugging Face に届かない環境。Actions の lab-yamnet では届く）`;
   if (otherCats.length) md += `。犬以外 ${otherCats.length} クラスのうち同じく離れた係数があるクラス: ${otherCats.filter(cat => far(catMeans(byCat(cat))) !== '—').length}/${otherCats.length}`;
   md += `\n- 注意: CC0 は 1 種類 1 本（1 頭）なので、犬の個体差・録音条件の違いと見分けがつかない。離れていても「本物の犬で効く」とは言い切れず、離れていなければ「この 5 本では効かない」とは言える（片方向の確認）。\n`;
+  md += mfccSrNote(dogs, cc0);
   return md + '\n';
+}
+
+/**
+ * MFCC の表の下に出すサンプリング周波数の注意（2026-11-19）。メルフィルタバンクは 0〜sr/2 を 26 本で割るので、
+ * 係数の値は sr に依存する（合成の 4 連吠え bark4.wav の c3 は 44.1 kHz で −7.9、16 kHz に落とすと −2.9。吠え 40 本の σ 3.1 より大きい）。
+ * 基準（ESC-50 は 44.1 kHz）と CC0 の sr が違えば、「離れた係数」は声の違いではなく sr の違いかもしれない。
+ * rows[].sr が無ければ何も出さない。
+ */
+export function mfccSrNote(dogs, cc0) {
+  const srs = list => [...new Set(list.map(r => r.sr).filter(s => typeof s === 'number'))];
+  const refSr = srs(dogs);
+  if (!refSr.length) return '';
+  const khz = s => `${+(s / 1000).toFixed(1)} kHz`;
+  const diff = cc0.filter(r => typeof r.sr === 'number' && !refSr.includes(r.sr));
+  let s = `- サンプリング周波数: 基準の吠え ${refSr.map(khz).join('・')}`;
+  if (cc0.length) s += `、CC0 ${cc0.map(r => `${r.file} ${typeof r.sr === 'number' ? khz(r.sr) : '不明'}`).join('、')}`;
+  s += diff.length
+    ? `。**${diff.map(r => r.file).join('・')} は基準と sr が違う**ので、その本の「離れた係数」は sr の違い（メルの帯域が変わる）かもしれない。同じ sr にそろえて（本体に入れるなら 16 kHz に落としてから）見直すこと。\n`
+    : `。基準と CC0 の sr は同じ（係数は sr に依存するので、違えば比べられない）。\n`;
+  return s;
 }
 
 /**
