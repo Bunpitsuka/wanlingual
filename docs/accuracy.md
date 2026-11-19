@@ -236,6 +236,15 @@ plan #13 の「c3 を kNN の 9 本目に足す案」（`docs/plan.md` 同日）
 - lvlDrop・f0・cent・長さ・間隔はこの影響を受けない（dB 差・Hz・秒で出している）。
 - 処理時間（この作業環境、Node 1 コア、13 係数）: bark4 2.8 秒で 21 ms、howl 2.0 秒で 14 ms、mic10s 8.7 秒で 59 ms。11-14 の「約 7.5 ms／秒」と同じ水準。
 
+## CC0 の mp3 の変換を Chromium に替えた（2026-11-20。数字は変えていない）
+
+`lab-yamnet` の ffmpeg（apt-get）が 11-19 の run 44370073648（30 分で job の timeout）、11-20 の run 44374831123（6 分の step timeout）と 2 晩つづけて止まり、CC0 5 本（くんくん・うなり・息・大型犬・小型犬）が 2 晩とも表に入らなかった。
+mp3 → WAV は、E2E と yamnet-check のためにどの run にも入っている Playwright の Chromium（Web Audio の `decodeAudioData`）でやることにした（`tests/lab/decode.mjs`）。
+
+- `decodeAudioData` は AudioContext の sr にリサンプルしてしまうので、mp3 のフレームヘッダから sr を読み、その sr の `OfflineAudioContext` で復号して**元の sr のまま**出す（c3 の sr 依存を見るため。上の 2026-11-19）。
+- この作業環境での確認（fixtures を ffmpeg で mp3 にして、Chromium の復号と ffmpeg の復号を比べた）: 44.1 / 48 / 22.05 / 16 kHz・ステレオ＋ID3v2・VBR の 6 本すべてで **sr・サンプル数が一致、相関 1.000、ずれ 0 サンプル、ピーク一致**。6 本で約 5 秒。
+- CC0 5 本の実際の sr は、この変更で起動する `lab-yamnet` の Summary の `mfccSrNote`（11-19 に足した一言）で分かる。結果はこの節の下に追記する。
+
 ## 既知の弱点（2026-11-01）
 
 - 規則的すぎる連吠えは「要求」に寄る。本物の犬は間隔がばらつくので、実データで見直す。

@@ -19,11 +19,9 @@ jobs:
         with: { node-version: 22 }
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - name: ffmpeg（CC0 の mp3 を WAV に変換するため。apt が固まっても 6 分で諦めて先へ進む。2026-11-19 の run 44370073648 が ここで 30 分止まった）
-        timeout-minutes: 6
-        continue-on-error: true
-        run: sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update -qq && sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y -qq ffmpeg >/dev/null
-      - name: 検証データを取得（ESC-50 は GitHub raw、CC0 5 本は Hugging Face。届かなければ飛ばす）
+      # ffmpeg の apt-get は 2026-11-19（30 分）・11-20（6 分 timeout）と 2 晩つづけて止まったので無くした。
+      # CC0 の mp3 → WAV は上で入れた Chromium の Web Audio で復号する（tests/lab/decode.mjs。ffmpeg の復号と波形が一致することは作業環境で確認済み）
+      - name: 検証データを取得（ESC-50 は GitHub raw、CC0 5 本は Hugging Face。届かなければ飛ばす。mp3 は Chromium で WAV に）
         run: node tests/lab/fetch-data.mjs
       - name: 本体の吠え検出・ルールに本物の音を通す
         run: node tests/lab/features-check.mjs

@@ -317,7 +317,7 @@ export function highlightsReport(featRows, yamRows, { threshold = 0.3, minSec = 
   else {
     const whimper = fr.find(r => r.source === 'CC0' && /whimper/i.test(r.file));
     const growl = fr.find(r => r.source === 'CC0' && /growl/i.test(r.file));
-    if (!whimper && !growl) lines.push('くんくん／うなり vs 吠え: CC0 5 本がこの実行では取れていない（Hugging Face に届かない環境）');
+    if (!whimper && !growl) lines.push('くんくん／うなり vs 吠え: CC0 5 本がこの実行では取れていない（Hugging Face に届かない環境か、mp3 → WAV の変換に失敗）');
     else {
       const esc = fr.filter(r => r.source === 'ESC-50' && r.category === 'dog');
       const drops = list => list.flatMap(r => (r.clusterDrops || []).filter(c => c.n >= 2).map(c => c.lvlDrop));

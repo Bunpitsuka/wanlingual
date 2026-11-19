@@ -6,10 +6,11 @@
 //    GitHub の raw から 1 本ずつ取る（600MB の zip を落とさない）。
 // 2. pet-decoder-audio-fixtures（CC0 1.0、Internet Archive 由来の犬の音 5 本）: Hugging Face から。
 //    この環境から HF に届かないときは飛ばす（GitHub Actions の lab-yamnet では届く）。
+//    mp3 は Playwright の Chromium で WAV に変換する（tests/lab/decode.mjs。ffmpeg は要らない）。
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { toWavWithChromium } from './decode.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const DATA = path.join(here, 'data');
@@ -73,14 +74,14 @@ export function listData() {
   return out;
 }
 
-/** WAV 以外（mp3 等）は ffmpeg があれば 16bit モノラル WAV に変換して隣に置く（検証スクリプトは WAV だけ読む） */
-function toWav(file) {
-  if (/\.wav$/i.test(file)) return;
-  const out = file.replace(/\.[^.]+$/, '.wav');
-  if (fs.existsSync(out)) return;
-  const r = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', file, '-ac', '1', '-sample_fmt', 's16', out], { stdio: 'inherit' });
-  if (r.error) console.warn('ffmpeg が無いので変換できず（apt-get install ffmpeg）:', path.basename(file), r.error.code);
-  else if (r.status !== 0) console.warn('ffmpeg で変換できず:', path.basename(file), 'exit', r.status);
+/**
+ * WAV 以外（mp3 等）を 16bit モノラル WAV（元の sr のまま）に変換して隣に置く（検証スクリプトは WAV だけ読む）。
+ * 2026-11-20 から ffmpeg ではなく Playwright の Chromium で復号する（tests/lab/decode.mjs。apt が 2 晩つづけて止まったため）。
+ */
+async function toWavAll(files) {
+  const res = await toWavWithChromium(files);
+  for (const r of res) if (!r.error) console.log(`変換: ${path.basename(r.file)} → ${path.basename(r.wav)}（${r.sr} Hz、${r.seconds} 秒）`);
+  return res;
 }
 
 export async function fetchAll() {
@@ -100,12 +101,14 @@ export async function fetchAll() {
     else console.warn('HF 一覧 HTTP', r.status);
   } catch (e) { console.warn('HF に届かない:', e.message); }
   let m = 0;
+  const got = [];
   for (const f of files) {
     const dst = path.join(DATA, 'cc0', path.basename(f));
     const ok = await get(`https://huggingface.co/datasets/${repo}/resolve/main/${f}`, dst, { optional: true });
-    if (ok) { m++; toWav(dst); }
+    if (ok) { m++; got.push(dst); }
   }
   console.log(`CC0 (HF): ${m}/${files.length} 本`, files.map(f => path.basename(f)).join(', '));
+  if (got.length) await toWavAll(got);
   const cc0Readme = path.join(DATA, 'cc0/README.md');
   if (files.length) await get(`https://huggingface.co/datasets/${repo}/resolve/main/README.md`, cc0Readme, { optional: true });
 }
