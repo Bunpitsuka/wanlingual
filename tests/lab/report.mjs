@@ -199,7 +199,9 @@ export function mfccReport(rows, { zMin = 2, nCoef = 12 } = {}) {
   const byCat = cat => rows.filter(r => r.source === 'ESC-50' && r.category === cat && has(r));
   const catMeans = list => [0, ...stats(list).map(s => s.mu)];
   let md = `### MFCC（c1〜c12 の平均）は くんくん／うなり／吠え で分かれるか（#13 の材料）\n\n`;
-  md += `声 1 回ごとのフレームだけ（声と声の間は入れない）の MFCC（自前 13 次元、\`tools/mfcc-bench.mjs\`。frame 1024 / hop 256 / メル 26）の平均。c0 は音量に近いので外した。基準は ESC-50 の吠え ${dogs.length} 本（ファイルごとの平均の 平均 ± 標準偏差）。「吠えから離れた係数」= 吠え ${dogs.length} 本の散らばりに対して |z| ≥ ${zMin}（標準偏差の ${zMin} 倍）離れている係数。1 つも無ければ、MFCC を足しても いまのルール・kNN の助けにならない見込み。\n\n`;
+  const m0 = rows.find(has)?.mfcc;
+  const cond = m0?.sr ? `全部 ${+(m0.sr / 1000).toFixed(1)} kHz に落としてから frame ${m0.frame} / hop ${m0.hop}` : 'frame 1024 / hop 256';
+  md += `声 1 回ごとのフレームだけ（声と声の間は入れない）の MFCC（自前 13 次元、\`tools/mfcc-bench.mjs\`。${cond} / メル 26）の平均。c0 は音量に近いので外した。基準は ESC-50 の吠え ${dogs.length} 本（ファイルごとの平均の 平均 ± 標準偏差）。「吠えから離れた係数」= 吠え ${dogs.length} 本の散らばりに対して |z| ≥ ${zMin}（標準偏差の ${zMin} 倍）離れている係数。1 つも無ければ、MFCC を足しても いまのルール・kNN の助けにならない見込み。\n\n`;
   md += `| 音 | 本 | 声のフレーム | ${coefs.map(c => `c${c}`).join(' | ')} | 吠えから離れた係数（\\|z\\| ≥ ${zMin}） |\n|---|---|---|${coefs.map(() => '---').join('|')}|---|\n`;
   md += `| ESC-50 吠え（基準） | ${dogs.length} | ${frames(dogs)} | ${ref.map(s => `${f1(s.mu)}±${f1(s.sd)}`).join(' | ')} | — |\n`;
   const cc0 = rows.filter(r => r.source === 'CC0' && has(r)).sort((a, b) => a.file.localeCompare(b.file));
@@ -228,6 +230,12 @@ export function mfccSrNote(dogs, cc0) {
   const refSr = srs(dogs);
   if (!refSr.length) return '';
   const khz = s => `${+(s / 1000).toFixed(1)} kHz`;
+  // 2026-11-20: features-check.mjs が MFCC を 16 kHz に落として出すようになった（rows[].mfcc.sr）。全部そろっていれば元の sr は参考として出すだけ
+  const mfccSrs = [...new Set([...dogs, ...cc0].map(r => r.mfcc?.sr))];
+  if (mfccSrs.length === 1 && typeof mfccSrs[0] === 'number') {
+    const orig = list => srs(list).map(khz).join('・') || '不明';
+    return `- サンプリング周波数: MFCC は全部 **${khz(mfccSrs[0])} に落としてから**出した（元のファイルは 基準の吠え ${orig(dogs)}${cc0.length ? `、CC0 ${orig(cc0)}` : ''}。係数は sr で変わるので、元のままでは比べられない）。\n`;
+  }
   const diff = cc0.filter(r => typeof r.sr === 'number' && !refSr.includes(r.sr));
   let s = `- サンプリング周波数: 基準の吠え ${refSr.map(khz).join('・')}`;
   if (cc0.length) s += `、CC0 ${cc0.map(r => `${r.file} ${typeof r.sr === 'number' ? khz(r.sr) : '不明'}`).join('、')}`;

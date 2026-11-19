@@ -160,6 +160,15 @@ test('MFCC の表の sr の注意（2026-11-19）: 基準と CC0 の sr が同�
   assert.equal(mfccSrNote([{ file: 'd1' }], [cc0('x.wav', 16000)]), '', '基準に sr が無ければ出さない');
   assert.match(mfccSrNote([bark(1, 44100)], []), /基準の吠え 44\.1 kHz。基準と CC0 の sr は同じ/);
   assert.match(mfccSrNote([bark(1, 44100)], [{ file: 'y.wav', source: 'CC0' }]), /y\.wav 不明。基準と CC0 の sr は同じ/, 'sr 不明の本は違うとは言わない');
+  // 2026-11-20: MFCC を 16 kHz に落として出した行（mfcc.sr）なら、元の sr が違っても警告ではなく「落としてから」の一言
+  const at16 = r => ({ ...r, mfcc: { ...r.mfcc, sr: 16000, frame: 512, hop: 128 } });
+  const unified = mfccReport([bark(1, 44100), bark(2, 44100), cc0('whimper.wav', 48000), cc0('growl.wav', 48000)].map(at16));
+  assert.match(unified, /全部 16 kHz に落としてから frame 512 \/ hop 128 \/ メル 26/);
+  assert.match(unified, /MFCC は全部 \*\*16 kHz に落としてから\*\*出した（元のファイルは 基準の吠え 44\.1 kHz、CC0 48 kHz。/);
+  assert.doesNotMatch(unified, /は基準と sr が違う/);
+  assert.match(mfccSrNote([at16(bark(1, 44100))], []), /16 kHz に落としてから\*\*出した（元のファイルは 基準の吠え 44\.1 kHz。/);
+  const mixed = mfccSrNote([at16(bark(1, 44100))], [cc0('whimper.wav', 48000)]); // 片方だけ落としている（混在）なら従来の警告
+  assert.match(mixed, /whimper\.wav は基準と sr が違う/);
 });
 
 test('塊ごとの lvlDrop の表: ESC-50 吠えの塊（2 回以上）の分布と、そろっている ≤1.5／ばらつく ≥5.5 の割合。CC0・犬以外は行ごと。吠えの塊が無ければ空', async () => {

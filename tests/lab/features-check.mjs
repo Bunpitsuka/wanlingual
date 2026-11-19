@@ -14,7 +14,7 @@ import { rules, top, CAT } from '../../app/js/classify.js';
 import { readWav } from './wav.mjs';
 import { listData } from './fetch-data.mjs';
 import { eventDistReport, eventToneReport, mfccReport, lvlDropReport } from './report.mjs';
-import { clustersFromEvents } from '../../app/lab/yamnet.js';
+import { clustersFromEvents, resampleTo16k, YAMNET_SR } from '../../app/lab/yamnet.js';
 import { mfccOfEvents } from '../../tools/mfcc-bench.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -28,8 +28,11 @@ const rows = data.map(d => {
   const r = f.n ? rules(f) : null;
   const events = a.events.map(e => ({ start: +e.start.toFixed(3), dur: +e.dur.toFixed(3), f0: Math.round(e.f0), cent: Math.round(e.cent), level: +e.level.toFixed(4) }));
   // MFCC（plan #13 の材料、2026-11-15）: 声 1 回ごとのフレームだけの 13 係数の平均。本体には入れていない（tools/mfcc-bench.mjs）
-  const m = mfccOfEvents(x, sr, a.events);
-  const mfcc = { frames: m.frames, mean: Array.from(m.mean, v => +v.toFixed(2)), sd: Array.from(m.sd, v => +v.toFixed(2)) };
+  // 2026-11-20: 係数は sr で変わる（accuracy.md 2026-11-19）ので、YAMNet と同じく 16 kHz に落としてから出す（frame 512 / hop 128 ≒ 44.1 kHz の 1024 / 256 と同じ 32 ms / 8 ms）。
+  // ESC-50 は 44.1 kHz、CC0 5 本は 48 kHz（run 44588069791）で、そのままでは比べられなかった。events は秒なのでそのまま使える
+  const MFCC = { sr: YAMNET_SR, frame: 512, hop: 128 };
+  const m = mfccOfEvents(resampleTo16k(x, sr), MFCC.sr, a.events, { frame: MFCC.frame, hop: MFCC.hop });
+  const mfcc = { ...MFCC, frames: m.frames, mean: Array.from(m.mean, v => +v.toFixed(2)), sd: Array.from(m.sd, v => +v.toFixed(2)) };
   // 塊ごとの lvlDrop（plan #13b の材料、2026-11-16）: 本体 mic.js と同じ区切り（0.7 秒あいたら切る、前 0.25 秒・後 0.12 秒）の塊を
   // 切り出して、本体と同じ analyzeSamples() を掛け直す（しきい値は塊の中で決まるので、ファイル全体の events を分けるより本体に近い）
   const clusterDrops = clustersFromEvents(a.events, x.length / sr).map(c => {
