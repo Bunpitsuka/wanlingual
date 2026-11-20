@@ -235,6 +235,13 @@ test('今夜の要点 3 行: 吠え検出率、塊の犬らしさ（最低 2 秒
   assert.match(lines[2], /ESC-50 3 本、塊ごとの lvlDrop 中央値 3\.0 dB・75% 点 6\.0 dB/);
   assert.match(lines[2], /くんくん lvlDrop 7\.0 dB（吠えの 75% 点より上＝離れた）、MFCC で吠えから離れた係数 c3\(\+5\.5σ\)/);
   assert.match(lines[2], /うなり lvlDrop 2\.4 dB（吠えと重なる）、MFCC で吠えから離れた係数 なし/);
+  // MFCC の sr の一言（2026-11-21）: mfcc.sr が無い（11-19 までの形）なら「元の sr のまま」、全部 16000 なら「16 kHz に落としてから」
+  assert.match(lines[2], /75% 点 6\.0 dB、MFCC は元の sr のまま（sr が違う本の係数は比べられない））: くんくん/);
+  const feat16 = feat.map(r => r.mfcc.frames ? { ...r, mfcc: { ...r.mfcc, sr: 16000, frame: 512, hop: 128 } } : r);
+  assert.match(highlightsReport(feat16, yam).lines[2], /75% 点 6\.0 dB、MFCC は 16 kHz に落としてから）: くんくん lvlDrop 7\.0 dB/);
+  // 基準だけ 16 kHz で CC0 が元の sr（混在）なら「元の sr のまま」に戻る
+  const mixed = feat16.map(r => r.source === 'CC0' ? { ...r, mfcc: { ...r.mfcc, sr: undefined } } : r);
+  assert.match(highlightsReport(mixed, yam).lines[2], /MFCC は元の sr のまま/);
   // 塊そのまま（clustersMin 無し）でも動く: 犬の塊 0.9/0.2/0.01/0.02 → 1/4、犬以外 0.0/0.5 → 1/2
   const plain = highlightsReport(feat, yam.map(r => ({ ...r, clustersMin: undefined })));
   assert.match(plain.lines[1], /塊そのまま、しきい値 0\.3）: 犬の塊 1\/4（25%） を「犬」、犬以外の塊 1\/2（50%）/);

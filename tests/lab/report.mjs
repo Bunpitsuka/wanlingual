@@ -351,7 +351,13 @@ export function highlightsReport(featRows, yamRows, { threshold = 0.3, minSec = 
         return out.join(' ') || 'なし';
       };
       const part = (name, r) => r ? `${name} lvlDrop ${lvl(r)}、MFCC で吠えから離れた係数 ${far(r)}` : `${name} 無し`;
-      lines.push(`くんくん／うなり vs 吠え（ESC-50 ${esc.length} 本、塊ごとの lvlDrop 中央値 ${bd.length ? f1(q(bd, 0.5)) : '—'} dB・75% 点 ${q75 == null ? '—' : f1(q75)} dB）: ${part('くんくん', whimper)}／${part('うなり', growl)}`);
+      // 2026-11-21: MFCC の sr を一言添える。11-15〜11-19 の表（元の sr のまま: 基準 44.1 kHz vs CC0 48 kHz）の数字と混ぜて読まないように。
+      // features-check.mjs は 2026-11-20 から全部 16 kHz に落としてから出す（rows[].mfcc.sr）。古い結果（sr 無し）や混在なら「元の sr のまま」
+      const mfccSrs = [...new Set([...md, whimper, growl].filter(r => r && has(r)).map(r => r.mfcc.sr))];
+      const srNote = mfccSrs.length === 1 && typeof mfccSrs[0] === 'number'
+        ? `MFCC は ${+(mfccSrs[0] / 1000).toFixed(1)} kHz に落としてから`
+        : 'MFCC は元の sr のまま（sr が違う本の係数は比べられない）';
+      lines.push(`くんくん／うなり vs 吠え（ESC-50 ${esc.length} 本、塊ごとの lvlDrop 中央値 ${bd.length ? f1(q(bd, 0.5)) : '—'} dB・75% 点 ${q75 == null ? '—' : f1(q75)} dB、${srNote}）: ${part('くんくん', whimper)}／${part('うなり', growl)}`);
     }
   }
   return { lines, md: `### 今夜の要点\n\n${lines.map(l => `- ${l}`).join('\n')}\n\n` };
