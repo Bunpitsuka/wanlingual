@@ -14,8 +14,9 @@ jobs:
     runs-on: ubuntu-24.04  # ubuntu-latest は 2026-11-12 に 26.04 になり Playwright 1.56 が Chromium を入れられない（日報 2026-11-13）
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # actions は 2026-11-22 に Node.js 24 で動く版（checkout/setup-node/upload-artifact v7、configure-pages v6、upload-pages-artifact v5、deploy-pages v5）に上げた（v4 系は Node.js 20 非推奨の警告。日報 2026-11-21）
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 22 }
       - run: npm ci
       - run: npx playwright install --with-deps chromium
@@ -32,7 +33,7 @@ jobs:
       - name: 今夜の要点 3 行（吠え検出率・塊の犬らしさ・くんくん／うなり が吠えから離れたか。Summary の最後と注釈に）
         if: always()
         run: node tests/lab/highlights.mjs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: yamnet-result
