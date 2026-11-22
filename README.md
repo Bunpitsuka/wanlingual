@@ -38,7 +38,9 @@ tools/og-image.mjs   OGP 画像（app/icons/og.png）の生成。mascot.js の�
 tools/screenshots.mjs  docs/screenshots/ を E2E の絵（tests/e2e/screenshots/）から更新する（`npm run test:e2e && npm run shots`）
 tools/mfcc-bench.mjs   plan #13 の下調べ: ライブラリ無しの自前 MFCC（13 次元）の手順と、1 秒あたりの処理時間の計測（`node tools/mfcc-bench.mjs`。本体には入れていない。
                      lab-yamnet の features-check.mjs が声 1 回ごとの MFCC の表を出すのに mfccOfEvents() を使う）
-.github/workflows/pages.yml   main に push → GitHub Pages へ自動デプロイ
+.github/workflows/pages.yml   main に push → GitHub Pages へ自動デプロイ（test job で単体テスト → deploy job）
+.github/workflows/lab-yamnet.yml  main に push → 本物の犬の音（ESC-50・CC0 5 本）を Actions で取得し、検出・YAMNet・lvlDrop・MFCC の表と「今夜の要点」3 行を Summary に出す
+                     （actions はどちらも Node.js 24 で動く版: checkout / setup-node / upload-artifact v7、configure-pages v6、upload-pages-artifact v5、deploy-pages v5。2026-11-22）
 ```
 
 ## 動かす
@@ -49,3 +51,8 @@ npm run test:unit
 npm run test:e2e     # 初回は npm install と npx playwright install chromium
 npm run shots        # E2E の絵で docs/screenshots/ を更新（画面を変えたら E2E のあとに）
 ```
+
+- `app/` を変えたら `app/sw.js` の `VERSION` を上げる（例 `wl-v16` → `wl-v17`）。テストが通らない変更は push しない。
+- `npm run shots` は画面を変えた夜だけ。E2E が撮った絵と docs の絵をバイト単位で比べ、同じ絵は触らない（`tools/screenshots.mjs` の `SHOTS` 表がどの絵を置くかを決める）。
+- この作業環境では Chromium の置き場を指す必要があることがある: `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium-1243/chrome-linux64/chrome npm run test:e2e`（無ければ `npx playwright install chromium`）。
+- push 後の確認: `gh run list -R Bunpitsuka/wanlingual --limit 3` で `deploy-pages`（約 35 秒）と `lab-yamnet`（約 13〜15 分）が success になること。
