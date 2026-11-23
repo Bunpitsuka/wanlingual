@@ -130,8 +130,12 @@ export async function fetchPlayPant() {
       if (await get(playpantUrl(name, { api }), dst, { optional: true, headers: ZENODO_HEADERS })) { k++; break; }
     }
   }
-  // 記録の JSON（説明文に注釈の記号 A〜L の凡例があるはず。run 45243790948 で Annotation 列が記号だったため）
+  // 記録の JSON と Readme（注釈の記号 A〜L の凡例を探す。run 45243790948 で Annotation 列が記号で、run 45248126366 で説明文には凡例が無く
+  // zip の外に `06 Readme.txt`（7 KB）があると分かった）
   await get(`https://zenodo.org/api/records/${PLAYPANT.record}`, path.join(DATA, 'playpant', 'record.json'), { optional: true, headers: ZENODO_HEADERS });
+  for (const api of [true, false]) {
+    if (await get(playpantUrl(PLAYPANT.files.readme, { api }), path.join(DATA, 'playpant', PLAYPANT.files.readme), { optional: true, headers: ZENODO_HEADERS })) break;
+  }
   console.log(`Dog play pant (Zenodo, ${PLAYPANT.license}): ${k}/2 ファイル（注釈と Metadata だけ。音声 zip 約 377 MB はまだ落とさない）`);
   return k;
 }

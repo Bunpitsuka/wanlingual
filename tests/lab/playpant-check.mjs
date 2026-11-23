@@ -24,7 +24,13 @@ let md = callTypeReport(tables);
 const others = entries.filter(e => !raven.includes(e));
 const kinds = {};
 for (const e of others) { const k = (e.name.match(/\.([^./]+)$/) || [, '（拡張子なし）'])[1]; kinds[k] = (kinds[k] || 0) + 1; }
-md += `- zip の中身（macOS のごみを除く）: ${entries.length} ファイル。Raven の表 ${raven.length}、他: ${Object.entries(kinds).map(([k, v]) => `${k} ${v}`).join('、') || '—'}。表の名前の例: ${raven.slice(0, 3).map(e => e.name).join('、')}\n`;
+md += `- zip の中身（macOS のごみを除く）: ${entries.length} ファイル。Raven の表 ${raven.length}、他: ${Object.entries(kinds).map(([k, v]) => `${k} ${v}`).join('、') || '—'}。表の名前の例: ${raven.slice(0, 3).map(e => e.name).join('、')}${others.length ? `。他の名前の例: ${others.slice(0, 3).map(e => `${e.name}（${e.data.length} B）`).join('、')}` : ''}\n`;
+// Zenodo の `06 Readme.txt`（zip の外。記号の凡例はここにあるはず）
+const readme = path.join(dir, PLAYPANT.files.readme);
+if (fs.existsSync(readme)) {
+  const text = fs.readFileSync(readme, 'utf8').replace(/\r\n?/g, '\n');
+  md += `\n<details open><summary>${PLAYPANT.files.readme}（Zenodo、${text.length} 文字${text.length > 8000 ? '、先頭 8000 文字' : ''}。記号 A〜L の凡例を探す）</summary>\n\n\`\`\`\n${text.slice(0, 8000)}\n\`\`\`\n\n</details>\n`;
+}
 const notes = pickNoteFiles(entries);
 if (notes.length) {
   md += `- 表でも TextGrid でもないテキスト ${notes.length} 件（記号の凡例を探す）: ${notes.map(e => e.name).join('、')}\n`;

@@ -9,7 +9,7 @@ export const PLAYPANT = {
   record: 18972388,
   license: 'CC BY 4.0',
   url: 'https://zenodo.org/records/18972388',
-  files: { annotations: '04 Annotations.zip', metadata: '05 Metadata.csv', audio: '03 Play session recordings.zip' },
+  files: { annotations: '04 Annotations.zip', metadata: '05 Metadata.csv', readme: '06 Readme.txt', audio: '03 Play session recordings.zip' },
 };
 /**
  * Zenodo の直接ダウンロード URL（ログイン不要）。
