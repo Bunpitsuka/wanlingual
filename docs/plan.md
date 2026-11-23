@@ -12,7 +12,7 @@
 | 4 | ホーム画面追加（manifest）＋オフライン（service worker） | 完了 | 2回目以降はオフラインで起動・判定できる |
 | 5 | 単体テスト（特徴量抽出・判定・育成度） | 完了 | `npm run test:unit` 6本 |
 | 6 | E2E（Playwright、Android Chrome / iPhone 相当のエミュレーション） | 完了 | `npm run test:e2e` 8本×2端末。偽マイクで吠え声→自動判定も通る |
-| 7 | GitHub Pages へ自動デプロイ | 完了 | https://bunpitsuka.github.io/wanlingual/ （main に push で自動更新）。**2026-11-22**: 2 つのワークフローの actions を Node.js 24 で動く版に上げた（checkout / setup-node / upload-artifact v4 → **v7**、configure-pages v5 → v6、upload-pages-artifact v3 → v5、deploy-pages v4 → v5。run の注釈に「Node.js 20 is deprecated」の警告が出ていたため。入力は全部同じ。setup-node v5 以降は `package-lock.json` があると npm のキャッシュが自動で効く） |
+| 7 | GitHub Pages へ自動デプロイ | 完了 | https://bunpitsuka.github.io/wanlingual/ （main に push で自動更新）。**2026-11-22**: 2 つのワークフローの actions を Node.js 24 で動く版に上げた（checkout / setup-node / upload-artifact v4 → **v7**、configure-pages v5 → v6、upload-pages-artifact v3 → v5、deploy-pages v4 → v5。run の注釈に「Node.js 20 is deprecated」の警告が出ていたため。入力は全部同じ。setup-node v5 以降は `package-lock.json` があると npm のキャッシュが自動で効く）。**2026-11-24**: 11-23・11-24 の 2 晩、前の push の 20 分以内の 2 回目の push で deploy-pages@v5 が「No artifacts named github-pages（Found 0 artifact(s)）」で落ちた（upload は成功。公開ページに影響なし）ので、deploy job の upload の後に **15 秒待つ step** を入れた |
 | 8 | 実機で本物の犬で確認 | 未 | 社長の手元に犬がいるときに。PCなら YouTube の犬動画でも試せる（`docs/deploy.md` 参照） |
 
 ## 設計のポイント

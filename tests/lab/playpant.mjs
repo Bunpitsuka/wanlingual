@@ -98,9 +98,21 @@ export function parseRavenTable(text) {
   return { header, beginCol, endCol, labelCol, rows, skipped };
 }
 
-/** zip の中身から Raven の表（.txt / .tsv / .csv の名前に selection か table、または拡張子 .txt）だけ選ぶ。TextGrid は読まない */
+/** macOS が zip に混ぜる `__MACOSX/`・`._*`・`.DS_Store` は中身ではない（run 45243790948 で 97 ファイルのうち 30 枚ぶんがこれだった） */
+export function isJunk(name) {
+  return /(^|\/)__MACOSX\//.test(name) || /(^|\/)\._/.test(name) || /(^|\/)\.DS_Store$/.test(name);
+}
+/** zip の中身から Raven の表（.txt / .tsv）だけ選ぶ。TextGrid・README・凡例・macOS のごみは読まない */
 export function pickRavenFiles(entries) {
-  return entries.filter(e => /\.(txt|tsv|csv)$/i.test(e.name) && !/readme|license|metadata/i.test(e.name)).sort((a, b) => a.name.localeCompare(b.name));
+  return entries.filter(e => !isJunk(e.name) && /\.(txt|tsv)$/i.test(e.name) && !/readme|license|metadata|legend|codes?\b|categor/i.test(e.name)).sort((a, b) => a.name.localeCompare(b.name));
+}
+/**
+ * 表でも TextGrid でもない小さなテキスト（README・凡例・コード表）を選ぶ。Annotation 列が A〜L の記号だった（run 45243790948）ので、
+ * 記号→声の種類の対応はこういうファイルか Zenodo の説明文にあるはず。中身は playpant-check.mjs が Summary に出す
+ */
+export function pickNoteFiles(entries, { maxBytes = 64 * 1024 } = {}) {
+  const tables = new Set(pickRavenFiles(entries).map(e => e.name));
+  return entries.filter(e => !isJunk(e.name) && !tables.has(e.name) && /\.(txt|md|csv|tsv|json|rtf)$/i.test(e.name) && e.data.length <= maxBytes).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 const q = (arr, p) => { const s = [...arr].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
@@ -109,12 +121,13 @@ const ms = v => Math.round(v * 1000);
 /**
  * 注釈の表（複数ファイル）→ Markdown。
  * tables = [{ name, header, labelCol, rows: [{dur, label}], skipped }]（parseRavenTable の結果に name を添えたもの）。
- * zip の中の最上位フォルダ（注釈の層: 初回／専門家の修正後）ごとに、声の種類ごとの件数・1 回の長さの中央値・25–75%・最長・合計秒を出す。
+ * 表の入っているフォルダ（注釈の層: `04 Annotations/FirstLayer/` と `…/SecondLayer/` のように、ファイルの親フォルダ）ごとに、
+ * 声の種類ごとの件数・1 回の長さの中央値・25–75%・最長・合計秒を出す。
  * 時刻列が読めなかったファイルは、そのヘッダ行をそのまま挙げる（列名を次の夜に直すため）。
  */
 export function callTypeReport(tables, { source = 'Dog play pant（Zenodo 18972388、CC BY 4.0）' } = {}) {
   if (!tables.length) return '';
-  const group = t => (t.name.includes('/') ? t.name.split('/')[0] : '（直下）');
+  const group = t => (t.name.includes('/') ? t.name.slice(0, t.name.lastIndexOf('/')) : '（直下）');
   const groups = [...new Set(tables.map(group))];
   let md = `**${source} の注釈（音声はまだ落としていない。表 ${tables.length} 枚、層: ${groups.join('・')}）**\n\n`;
   const unread = tables.filter(t => !t.rows.length);
@@ -139,10 +152,50 @@ export function callTypeReport(tables, { source = 'Dog play pant（Zenodo 189723
   return md;
 }
 
-/** Metadata.csv は中身を決め打ちしない: 列名と行数だけ（次の夜に datasets.md へ書く材料） */
-export function metadataNote(csvText) {
+/** HTML の説明文（Zenodo の record.json の metadata.description）を素のテキストに（タグを外し、段落・改行を保つ） */
+export function htmlToText(html) {
+  return String(html ?? '')
+    .replace(/<\s*(br|\/p|\/div|\/li|\/tr|\/h\d)\s*\/?>/gi, '\n').replace(/<\s*li[^>]*>/gi, '- ').replace(/<\/t[dh]>/gi, '\t')
+    .replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .split('\n').map(l => l.replace(/[ \t]+$/g, '')).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/** Zenodo の record.json → 説明文（素のテキスト）とファイル一覧の Markdown。無ければ空文字 */
+export function recordNote(json, { maxChars = 6000 } = {}) {
+  let d; try { d = typeof json === 'string' ? JSON.parse(json) : json; } catch { return ''; }
+  if (!d || typeof d !== 'object') return '';
+  const files = (d.files ?? []).map(f => `${f.key}（${f.size >= 1e6 ? (f.size / 1e6).toFixed(0) + ' MB' : Math.round(f.size / 1e3) + ' KB'}）`);
+  const text = htmlToText(d.metadata?.description);
+  let s = '';
+  if (files.length) s += `- Zenodo のファイル一覧: ${files.join('、')}\n`;
+  if (text) s += `\n<details><summary>Zenodo の説明文（記号の凡例を探す。${text.length} 文字${text.length > maxChars ? `、先頭 ${maxChars} 文字` : ''}）</summary>\n\n\`\`\`\n${text.slice(0, maxChars)}\n\`\`\`\n\n</details>\n`;
+  return s;
+}
+
+/**
+ * Metadata.csv: 列名と行数、それに「値の種類が少ない列」（sr・チャンネル数・ビット深度・場面・注釈の有無 など）は値ごとの件数も出す
+ * （run 45243790948 で分かった形: `;` 区切り、30 行、列 Audio_file;ID_dog;Session;…;Sample_rate-hz;Bit_depth;Channels;…;Context;Annotation_available;…）。
+ * 区切りは 1 行目に多い方（`;` か `,`）。値の種類が maxUnique 以下の列だけ内訳を出す（犬の名前や日付は出さない）。
+ */
+export function metadataNote(csvText, { maxUnique = 6 } = {}) {
   const lines = String(csvText).replace(/\r\n?/g, '\n').split('\n').filter(l => l.trim() !== '');
   if (!lines.length) return '';
-  const header = lines[0].replace(/^﻿/, '').split(',').map(h => h.trim());
-  return `- Metadata.csv: ${lines.length - 1} 行、列: ${header.join('、')}\n`;
+  const first = lines[0].replace(/^﻿/, '');
+  const sep = (first.split(';').length > first.split(',').length) ? ';' : ',';
+  const header = first.split(sep).map(h => h.trim());
+  const rows = lines.slice(1).map(l => l.split(sep).map(c => c.trim()));
+  let s = `- Metadata.csv: ${rows.length} 行（区切り \`${sep}\`）、列: ${header.join('、')}\n`;
+  const details = [];
+  header.forEach((h, i) => {
+    if (/name|date|^id|file|session|annotator|reviewer|author|person/i.test(h)) return; // 人の名前になり得る列は出さない
+    const count = new Map();
+    for (const r of rows) { const v = r[i] ?? ''; count.set(v, (count.get(v) || 0) + 1); }
+    if (count.size >= 1 && count.size <= maxUnique) details.push(`${h}: ${[...count.entries()].sort((a, b) => b[1] - a[1]).map(([v, n]) => `${v || '（空）'} ${n}`).join('・')}`);
+  });
+  if (details.length) s += `  - 値の種類が少ない列: ${details.join('／')}\n`;
+  const dogCol = header.findIndex(h => /^id_dog$|dog_?id/i.test(h));
+  if (dogCol >= 0) s += `  - 犬の数: ${new Set(rows.map(r => r[dogCol])).size}\n`;
+  const durCol = header.findIndex(h => /duration/i.test(h));
+  if (durCol >= 0) { const tot = rows.reduce((p, r) => p + (Number(r[durCol]) || 0), 0); if (tot) s += `  - 合計の長さ: ${(tot / 60).toFixed(1)} 分\n`; }
+  return s;
 }

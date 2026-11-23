@@ -32,5 +32,10 @@ jobs:
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with: { path: app }
+      # 2026-11-23・11-24 の 2 晩、upload 直後の deploy-pages@v5 が「No artifacts named "github-pages"」（Found 0 artifact(s)）で落ちた
+      # （upload は成功していて成果物一覧には出る＝API に見えるまでの遅れ。どちらも前の push の 20 分以内の 2 回目の push）。
+      # 成果物が API から見えるまで少し待ってから deploy する（失敗したときの部分再実行は成果物が 2 つになって効かないので、先に待つ）
+      - name: 成果物が API から見えるまで待つ
+        run: sleep 15
       - id: deployment
         uses: actions/deploy-pages@v5
