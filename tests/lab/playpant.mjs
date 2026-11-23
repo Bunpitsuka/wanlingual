@@ -11,10 +11,17 @@ export const PLAYPANT = {
   url: 'https://zenodo.org/records/18972388',
   files: { annotations: '04 Annotations.zip', metadata: '05 Metadata.csv', audio: '03 Play session recordings.zip' },
 };
-/** Zenodo の直接ダウンロード URL（ログイン不要） */
-export function playpantUrl(name) {
-  return `https://zenodo.org/records/${PLAYPANT.record}/files/${encodeURIComponent(name)}?download=1`;
+/**
+ * Zenodo の直接ダウンロード URL（ログイン不要）。
+ * 2026-11-24 の run 45239972718 で、記録ページの `?download=1` は Actions のランナーからだと HTTP 403 だったので、
+ * 既定はプログラム向けの API（`/api/records/<id>/files/<name>/content`）にし、`{ api: false }` で従来の URL も出せるようにした（片方ずつ試す）。
+ */
+export function playpantUrl(name, { api = true } = {}) {
+  const f = encodeURIComponent(name);
+  return api ? `https://zenodo.org/api/records/${PLAYPANT.record}/files/${f}/content` : `https://zenodo.org/records/${PLAYPANT.record}/files/${f}?download=1`;
 }
+/** Zenodo は User-Agent の無い／素の取得を 403 で返すことがあるので、ブラウザ風の UA と Accept を付けて取る */
+export const ZENODO_HEADERS = { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) wanlingual-lab/1.0 (+https://github.com/Bunpitsuka/wanlingual)', Accept: '*/*' };
 
 /** 声の種類の英語（論文の表記ゆれも拾う）→ 日本語。合わなければ英語のまま */
 export const CALL_JA = [

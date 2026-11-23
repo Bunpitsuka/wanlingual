@@ -5,14 +5,16 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PLAYPANT, playpantUrl, callJa, unzip, pickRavenFiles, parseRavenTable, callTypeReport, metadataNote } from '../lab/playpant.mjs';
+import { PLAYPANT, playpantUrl, ZENODO_HEADERS, callJa, unzip, pickRavenFiles, parseRavenTable, callTypeReport, metadataNote } from '../lab/playpant.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const zipBuf = fs.readFileSync(path.join(here, '../fixtures/playpant-annotations.zip'));
 
-test('Zenodo の URL: 空白入りのファイル名をエンコードし、ログイン不要の ?download=1', () => {
-  assert.equal(playpantUrl(PLAYPANT.files.annotations), 'https://zenodo.org/records/18972388/files/04%20Annotations.zip?download=1');
+test('Zenodo の URL: 空白入りのファイル名をエンコードし、既定は API の /content、api:false で記録ページの ?download=1', () => {
+  assert.equal(playpantUrl(PLAYPANT.files.annotations), 'https://zenodo.org/api/records/18972388/files/04%20Annotations.zip/content');
+  assert.equal(playpantUrl(PLAYPANT.files.annotations, { api: false }), 'https://zenodo.org/records/18972388/files/04%20Annotations.zip?download=1');
   assert.equal(PLAYPANT.license, 'CC BY 4.0');
+  assert.match(ZENODO_HEADERS['User-Agent'], /wanlingual-lab/);
 });
 
 test('unzip: store と deflate の両方を展開し、ディレクトリ項目は含めない。中身が元のテキストと一致する', () => {

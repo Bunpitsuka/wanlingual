@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toWavWithChromium } from './decode.mjs';
-import { PLAYPANT, playpantUrl } from './playpant.mjs';
+import { PLAYPANT, playpantUrl, ZENODO_HEADERS } from './playpant.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const DATA = path.join(here, 'data');
@@ -23,10 +23,10 @@ export const NON_DOG = ['cat', 'rooster', 'crying_baby', 'door_wood_knock', 'cla
 export const PER_CLASS = 5;
 
 /** 1 回の取得。5xx と通信エラーは少し待って最大 retries 回やり直す（2026-11-05: GitHub raw が一時的に 503 を返して run が落ちたため） */
-async function fetchRetry(url, { retries = 3, waitMs = 3000 } = {}) {
+async function fetchRetry(url, { retries = 3, waitMs = 3000, headers } = {}) {
   for (let i = 0; ; i++) {
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+      const r = await fetch(url, { signal: AbortSignal.timeout(60_000), headers });
       if (r.ok) return r;
       if (r.status < 500 || i >= retries) throw new Error('HTTP ' + r.status);
       console.warn(`retry ${i + 1}/${retries}`, url, '- HTTP', r.status);
@@ -38,10 +38,10 @@ async function fetchRetry(url, { retries = 3, waitMs = 3000 } = {}) {
   }
 }
 
-async function get(url, file, { optional = false } = {}) {
+async function get(url, file, { optional = false, headers } = {}) {
   if (fs.existsSync(file) && fs.statSync(file).size > 0) return true;
   try {
-    const r = await fetchRetry(url, { retries: optional ? 1 : 3 });
+    const r = await fetchRetry(url, { retries: optional ? 1 : 3, headers });
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, Buffer.from(await r.arrayBuffer()));
     return true;
@@ -118,11 +118,17 @@ export async function fetchAll() {
   await fetchPlayPant();
 }
 
-/** Dog play pant の注釈 zip と Metadata.csv だけ（音声はまだ）。届かなければ飛ばす。取れた数を返す */
+/**
+ * Dog play pant の注釈 zip と Metadata.csv だけ（音声はまだ）。届かなければ飛ばす。取れた数を返す。
+ * 2026-11-24: 記録ページの `?download=1` は Actions から 403 だったので、API の `/content` → 従来の URL の順に、UA を付けて試す。
+ */
 export async function fetchPlayPant() {
   let k = 0;
   for (const name of [PLAYPANT.files.annotations, PLAYPANT.files.metadata]) {
-    if (await get(playpantUrl(name), path.join(DATA, 'playpant', name), { optional: true })) k++;
+    const dst = path.join(DATA, 'playpant', name);
+    for (const api of [true, false]) {
+      if (await get(playpantUrl(name, { api }), dst, { optional: true, headers: ZENODO_HEADERS })) { k++; break; }
+    }
   }
   console.log(`Dog play pant (Zenodo, ${PLAYPANT.license}): ${k}/2 ファイル（注釈と Metadata だけ。音声 zip 約 377 MB はまだ落とさない）`);
   return k;
