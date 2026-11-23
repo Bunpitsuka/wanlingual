@@ -29,8 +29,15 @@ export const CALL_JA = [
   [/cough|woof/i, '咳／ウーフ'], [/howl/i, '遠吠え'], [/grunt/i, 'ぶつぶつ'], [/sneez/i, 'くしゃみ'], [/shak/i, '身震い'],
   [/human|speech|voice|person/i, '人の声'], [/other|unk/i, 'その他'],
 ];
-export function callJa(label) {
+/** 注釈の記号 → 種類（Zenodo の `06 Readme.txt` の Annotation labels、run 45250645427 で確認） */
+export const CODE_LABEL = { A: 'Growl', B: 'Whine', C: 'Bark / yelp', D: 'Moan', E: 'Pant', F: 'Cough / woof', G: 'Howl', H: 'Grunts', I: 'Other', J: 'Sneeze', K: 'Shake', L: 'Human vocalizations' };
+/** 記号なら種類の英語に直す（それ以外はそのまま） */
+export function decodeLabel(label) {
   const s = String(label ?? '').trim();
+  return CODE_LABEL[s.toUpperCase()] && s.length === 1 ? CODE_LABEL[s.toUpperCase()] : s;
+}
+export function callJa(label) {
+  const s = decodeLabel(label);
   for (const [re, ja] of CALL_JA) if (re.test(s)) return ja;
   return s || '（空）';
 }
@@ -82,8 +89,9 @@ export function parseRavenTable(text) {
   const header = lines[0].replace(/^﻿/, '').split('\t').map(h => h.trim());
   const hn = header.map(norm);
   const find = re => hn.findIndex(h => re.test(h));
-  const beginCol = find(/^begin ?time/), endCol = find(/^end ?time/);
-  let labelCol = hn.findIndex(h => /annotation|call|type|vocal|label|category|class|sound|behav/.test(h) && !/^(begin|end|delta|file|low|high|peak|avg|center)/.test(h));
+  // 2 層目（Praat の TextGrid から書き出した表、run 45250645427 の Readme）は tmin / tier / text / tmax
+  const beginCol = find(/^(begin ?time|tmin$|start)/), endCol = find(/^(end ?time|tmax$|end$)/), tierCol = find(/^tier$/);
+  let labelCol = hn.findIndex(h => /annotation|call|type|vocal|label|category|class|sound|behav|^text$/.test(h) && !/^(begin|end|delta|file|low|high|peak|avg|center)/.test(h));
   const body = lines.slice(1).map(l => l.split('\t'));
   if (labelCol < 0) labelCol = hn.findIndex((h, i) => !STD_RAVEN.test(h) && body.some(c => (c[i] ?? '').trim() && Number.isNaN(Number(c[i]))));
   const rows = [];
@@ -92,7 +100,9 @@ export function parseRavenTable(text) {
     for (const c of body) {
       const begin = Number(c[beginCol]), end = Number(c[endCol]);
       if (!Number.isFinite(begin) || !Number.isFinite(end) || end < begin) { skipped++; continue; }
-      rows.push({ begin, end, dur: end - begin, label: labelCol >= 0 ? (c[labelCol] ?? '').trim() : '' });
+      const row = { begin, end, dur: end - begin, label: labelCol >= 0 ? (c[labelCol] ?? '').trim() : '' };
+      if (tierCol >= 0) row.tier = (c[tierCol] ?? '').trim();
+      rows.push(row);
     }
   }
   return { header, beginCol, endCol, labelCol, rows, skipped };
@@ -104,7 +114,8 @@ export function isJunk(name) {
 }
 /** zip の中身から Raven の表（.txt / .tsv）だけ選ぶ。TextGrid・README・凡例・macOS のごみは読まない */
 export function pickRavenFiles(entries) {
-  return entries.filter(e => !isJunk(e.name) && /\.(txt|tsv)$/i.test(e.name) && !/readme|license|metadata|legend|codes?\b|categor/i.test(e.name)).sort((a, b) => a.name.localeCompare(b.name));
+  // 2 層目は `P-04-S-P_1.Table` のように拡張子が .Table（run 45248126366）
+  return entries.filter(e => !isJunk(e.name) && /\.(txt|tsv|table)$/i.test(e.name) && !/readme|license|metadata|legend|codes?\b|categor/i.test(e.name)).sort((a, b) => a.name.localeCompare(b.name));
 }
 /**
  * 表でも TextGrid でもない小さなテキスト（README・凡例・コード表）を選ぶ。Annotation 列が A〜L の記号だった（run 45243790948）ので、
@@ -134,14 +145,18 @@ export function callTypeReport(tables, { source = 'Dog play pant（Zenodo 189723
   for (const g of groups) {
     const ts = tables.filter(t => group(t) === g && t.rows.length);
     if (!ts.length) continue;
-    const rows = ts.flatMap(t => t.rows);
+    const all = ts.flatMap(t => t.rows);
+    // Praat 由来の表に tier 列があれば、声の tier（calls 等）だけ数え、他の tier は件数だけ添える
+    const tiers = [...new Set(all.map(r => r.tier).filter(t => t))];
+    const callTiers = tiers.filter(t => /call|sound|vocal/i.test(t));
+    const rows = callTiers.length ? all.filter(r => callTiers.includes(r.tier)) : all;
     const byLabel = new Map();
     for (const r of rows) { const k = r.label || '（空）'; if (!byLabel.has(k)) byLabel.set(k, []); byLabel.get(k).push(r.dur); }
     const labelCols = [...new Set(ts.map(t => t.header[t.labelCol] ?? '（無し）'))];
-    md += `### ${g}（${ts.length} 枚、${rows.length} 回。種類の列: ${labelCols.join('・')}）\n\n`;
-    md += `| 種類（原文） | 日本語 | 件数 | 1 回の長さ 中央値 | 25–75% | 最長 | 合計 |\n|---|---|---|---|---|---|---|\n`;
+    md += `### ${g}（${ts.length} 枚、${rows.length} 回。種類の列: ${labelCols.join('・')}${tiers.length ? `。tier: ${tiers.map(t => `${t} ${all.filter(r => r.tier === t).length}`).join('・')}${callTiers.length ? `（数えたのは ${callTiers.join('・')}）` : ''}` : ''}）\n\n`;
+    md += `| 種類（原文） | 種類 | 日本語 | 件数 | 1 回の長さ 中央値 | 25–75% | 最長 | 合計 |\n|---|---|---|---|---|---|---|---|\n`;
     for (const [label, durs] of [...byLabel.entries()].sort((a, b) => b[1].length - a[1].length)) {
-      md += `| ${label} | ${callJa(label)} | ${durs.length} | ${ms(q(durs, 0.5))} ms | ${ms(q(durs, 0.25))}–${ms(q(durs, 0.75))} ms | ${ms(Math.max(...durs))} ms | ${durs.reduce((p, c) => p + c, 0).toFixed(1)} 秒 |\n`;
+      md += `| ${label} | ${decodeLabel(label)} | ${callJa(label)} | ${durs.length} | ${ms(q(durs, 0.5))} ms | ${ms(q(durs, 0.25))}–${ms(q(durs, 0.75))} ms | ${ms(Math.max(...durs))} ms | ${durs.reduce((p, c) => p + c, 0).toFixed(1)} 秒 |\n`;
     }
     const skipped = ts.reduce((p, t) => p + t.skipped, 0);
     md += `\n- 本体の境目との比較: 「長い ≥710ms」に入る回 ${rows.filter(r => r.dur >= 0.71).length}/${rows.length}、「短い ≤590ms」 ${rows.filter(r => r.dur <= 0.59).length}/${rows.length}${skipped ? `。時刻が読めず飛ばした行 ${skipped}` : ''}\n\n`;
