@@ -7,10 +7,13 @@
 // 2. pet-decoder-audio-fixtures（CC0 1.0、Internet Archive 由来の犬の音 5 本）: Hugging Face から。
 //    この環境から HF に届かないときは飛ばす（GitHub Actions の lab-yamnet では届く）。
 //    mp3 は Playwright の Chromium で WAV に変換する（tests/lab/decode.mjs。ffmpeg は要らない）。
+// 3. Dog play pant（CC BY 4.0、Zenodo 18972388。2026-11-24）: まず注釈 zip（約 123 KB）と Metadata.csv だけ。音声 zip（約 377 MB）はまだ。
+//    Zenodo に届かなければ飛ばす（この作業環境からは届かない。Actions では届く見込み）。
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toWavWithChromium } from './decode.mjs';
+import { PLAYPANT, playpantUrl } from './playpant.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const DATA = path.join(here, 'data');
@@ -111,6 +114,18 @@ export async function fetchAll() {
   if (got.length) await toWavAll(got);
   const cc0Readme = path.join(DATA, 'cc0/README.md');
   if (files.length) await get(`https://huggingface.co/datasets/${repo}/resolve/main/README.md`, cc0Readme, { optional: true });
+
+  await fetchPlayPant();
+}
+
+/** Dog play pant の注釈 zip と Metadata.csv だけ（音声はまだ）。届かなければ飛ばす。取れた数を返す */
+export async function fetchPlayPant() {
+  let k = 0;
+  for (const name of [PLAYPANT.files.annotations, PLAYPANT.files.metadata]) {
+    if (await get(playpantUrl(name), path.join(DATA, 'playpant', name), { optional: true })) k++;
+  }
+  console.log(`Dog play pant (Zenodo, ${PLAYPANT.license}): ${k}/2 ファイル（注釈と Metadata だけ。音声 zip 約 377 MB はまだ落とさない）`);
+  return k;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
