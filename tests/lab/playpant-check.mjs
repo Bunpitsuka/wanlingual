@@ -1,4 +1,5 @@
-// Dog play pant（CC BY 4.0）の注釈だけを読んで、声の種類ごとの件数・長さを Summary に出す（2026-11-24。音声はまだ落とさない）。
+// Dog play pant（Readme は CC BY-NC 4.0 → 検証専用）の注釈を読んで、声の種類ごとの件数・長さを Summary に出す（2026-11-24）。
+// 2026-11-25: 音声 zip があれば WAV 30 本の一覧（長さ・形式・注釈との対応）も出す（(b) の 1 歩目。切り出しは次）。
 // データは先に tests/lab/fetch-data.mjs が tests/lab/data/playpant/ に落とす（Zenodo に届かなければ無いので、何も出さずに終わる）。
 //
 //   node tests/lab/fetch-data.mjs && node tests/lab/playpant-check.mjs
@@ -10,7 +11,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DATA } from './fetch-data.mjs';
-import { PLAYPANT, unzip, isJunk, pickRavenFiles, pickNoteFiles, parseRavenTable, callTypeReport, metadataNote, recordNote } from './playpant.mjs';
+import { PLAYPANT, unzip, zipIndex, zipExtract, isJunk, pickRavenFiles, pickNoteFiles, parseRavenTable, callTypeReport, metadataNote, recordNote, audioListReport } from './playpant.mjs';
+import { wavHeader } from './wav.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const dir = path.join(DATA, 'playpant');
@@ -45,8 +47,28 @@ const meta = path.join(dir, PLAYPANT.files.metadata);
 if (fs.existsSync(meta)) md += metadataNote(fs.readFileSync(meta, 'utf8'));
 const rec = path.join(dir, 'record.json');
 if (fs.existsSync(rec)) md += recordNote(fs.readFileSync(rec, 'utf8'));
-md += `- 出典: ${PLAYPANT.url}（${PLAYPANT.license}）。音声 zip（約 377 MB）は次の夜（datasets.md 次の一手 4 の (b)）\n`;
+// 音声 zip（2026-11-25、(b) の 1 歩目）: あれば WAV の一覧（長さ・形式・注釈との対応）だけ出す。1 本ずつ展開してヘッダを読み、捨てる（720 MB を同時に持たない）
+const audioZip = path.join(dir, PLAYPANT.files.audio);
+let wavs = [];
+if (fs.existsSync(audioZip)) {
+  const zbuf = fs.readFileSync(audioZip);
+  const idx = zipIndex(zbuf).filter(e => !isJunk(e.name));
+  const wavEntries = idx.filter(e => /\.wav$/i.test(e.name));
+  for (const e of wavEntries) {
+    try {
+      const { sr, ch, bits, fmt, seconds } = wavHeader(zipExtract(zbuf, e), e.name);
+      wavs.push({ name: e.name, csize: e.csize, usize: e.usize, sr, ch, bits, fmt, seconds: +seconds.toFixed(2) });
+    } catch (err) { wavs.push({ name: e.name, csize: e.csize, usize: e.usize, sr: 0, ch: 0, bits: 0, fmt: 0, seconds: 0, error: err.message }); }
+  }
+  md += audioListReport(wavs, tables);
+  const otherNames = idx.filter(e => !wavEntries.includes(e)).map(e => e.name);
+  md += `- 音声 zip の中身: ${idx.length} ファイル（WAV ${wavEntries.length}${otherNames.length ? `、他 ${otherNames.length}: ${otherNames.slice(0, 5).join('、')}` : ''}）。zip ${(zbuf.length / 1e6).toFixed(1)} MB${wavs.some(w => w.error) ? `。**読めない WAV: ${wavs.filter(w => w.error).map(w => `${w.name.split('/').pop()}（${w.error}）`).join('、')}**` : ''}\n`;
+} else {
+  md += `- 音声 zip（約 377 MB）は無い（PLAYPANT_AUDIO=1 で fetch-data.mjs が落とす）\n`;
+}
+md += `- 出典: ${PLAYPANT.url}（${PLAYPANT.license}: ${PLAYPANT.licenseNote}）\n`;
 console.log(md);
 fs.mkdirSync(path.join(here, 'out'), { recursive: true });
+if (wavs.length) fs.writeFileSync(path.join(here, 'out/playpant-wavs.json'), JSON.stringify({ at: new Date().toISOString(), license: PLAYPANT.license, wavs }, null, 1));
 fs.writeFileSync(path.join(here, 'out/playpant-annotations.json'), JSON.stringify({ at: new Date().toISOString(), files: entries.map(e => e.name), tables: tables.map(t => ({ name: t.name, header: t.header, labelCol: t.labelCol, skipped: t.skipped, rows: t.rows.map(r => ({ b: +r.begin.toFixed(3), e: +r.end.toFixed(3), l: r.label })) })) }, null, 1));
 if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + '\n');

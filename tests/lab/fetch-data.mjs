@@ -7,10 +7,13 @@
 // 2. pet-decoder-audio-fixtures（CC0 1.0、Internet Archive 由来の犬の音 5 本）: Hugging Face から。
 //    この環境から HF に届かないときは飛ばす（GitHub Actions の lab-yamnet では届く）。
 //    mp3 は Playwright の Chromium で WAV に変換する（tests/lab/decode.mjs。ffmpeg は要らない）。
-// 3. Dog play pant（CC BY 4.0、Zenodo 18972388。2026-11-24）: まず注釈 zip（約 123 KB）と Metadata.csv だけ。音声 zip（約 377 MB）はまだ。
-//    Zenodo に届かなければ飛ばす（この作業環境からは届かない。Actions では届く見込み）。
+// 3. Dog play pant（Zenodo 18972388。2026-11-24。Readme は CC BY-NC 4.0 → ESC-50 と同じ検証専用）: 注釈 zip（約 123 KB）と Metadata.csv。
+//    音声 zip（約 377 MB）は PLAYPANT_AUDIO=1 のときだけ（2026-11-25。Actions の lab-yamnet で付ける。ファイルに流し込むので メモリに全部は持たない）。
+//    Zenodo に届かなければ飛ばす（この作業環境からは届かない。Actions では API の /content ＋ UA 付きなら届く）。
 import fs from 'node:fs';
 import path from 'node:path';
+import { pipeline } from 'node:stream/promises';
+import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { toWavWithChromium } from './decode.mjs';
 import { PLAYPANT, playpantUrl, ZENODO_HEADERS } from './playpant.mjs';
@@ -23,10 +26,10 @@ export const NON_DOG = ['cat', 'rooster', 'crying_baby', 'door_wood_knock', 'cla
 export const PER_CLASS = 5;
 
 /** 1 回の取得。5xx と通信エラーは少し待って最大 retries 回やり直す（2026-11-05: GitHub raw が一時的に 503 を返して run が落ちたため） */
-async function fetchRetry(url, { retries = 3, waitMs = 3000, headers } = {}) {
+async function fetchRetry(url, { retries = 3, waitMs = 3000, headers, timeoutMs = 60_000 } = {}) {
   for (let i = 0; ; i++) {
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(60_000), headers });
+      const r = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), headers });
       if (r.ok) return r;
       if (r.status < 500 || i >= retries) throw new Error('HTTP ' + r.status);
       console.warn(`retry ${i + 1}/${retries}`, url, '- HTTP', r.status);
@@ -38,12 +41,19 @@ async function fetchRetry(url, { retries = 3, waitMs = 3000, headers } = {}) {
   }
 }
 
-async function get(url, file, { optional = false, headers } = {}) {
+async function get(url, file, { optional = false, headers, timeoutMs, stream = false } = {}) {
   if (fs.existsSync(file) && fs.statSync(file).size > 0) return true;
   try {
-    const r = await fetchRetry(url, { retries: optional ? 1 : 3, headers });
+    const r = await fetchRetry(url, { retries: optional ? 1 : 3, headers, timeoutMs });
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, Buffer.from(await r.arrayBuffer()));
+    if (stream) {
+      // 大きいファイル（音声 zip 377 MB）はファイルに流し込む。途中で切れたら .part を消して失敗にする
+      const part = file + '.part';
+      try { await pipeline(Readable.fromWeb(r.body), fs.createWriteStream(part)); fs.renameSync(part, file); }
+      catch (e) { fs.rmSync(part, { force: true }); throw e; }
+    } else {
+      fs.writeFileSync(file, Buffer.from(await r.arrayBuffer()));
+    }
     return true;
   } catch (e) {
     if (!optional) throw new Error(`${url}: ${e.message}`);
@@ -136,8 +146,28 @@ export async function fetchPlayPant() {
   for (const api of [true, false]) {
     if (await get(playpantUrl(PLAYPANT.files.readme, { api }), path.join(DATA, 'playpant', PLAYPANT.files.readme), { optional: true, headers: ZENODO_HEADERS })) break;
   }
-  console.log(`Dog play pant (Zenodo, ${PLAYPANT.license}): ${k}/2 ファイル（注釈と Metadata だけ。音声 zip 約 377 MB はまだ落とさない）`);
+  console.log(`Dog play pant (Zenodo, ${PLAYPANT.license}): ${k}/2 ファイル（注釈と Metadata）`);
+  if (process.env.PLAYPANT_AUDIO === '1') await fetchPlayPantAudio();
+  else console.log(`Dog play pant の音声 zip（約 377 MB）は PLAYPANT_AUDIO=1 のときだけ落とす`);
   return k;
+}
+
+/**
+ * Dog play pant の音声 zip（`03 Play session recordings.zip`、約 377 MB、WAV 30 本）。2026-11-25、datasets.md 次の一手 4 の (b) の 1 歩目。
+ * ファイルに流し込む（メモリに全部は持たない）。15 分で諦める。届かなければ飛ばす。落ちたかを返す。
+ * リポジトリには入れない（tests/lab/data/ は .gitignore 済み）。製品にも入れない（Readme のライセンスは CC BY-NC → 検証専用）。
+ */
+export async function fetchPlayPantAudio() {
+  const name = PLAYPANT.files.audio;
+  const dst = path.join(DATA, 'playpant', name);
+  const t0 = Date.now();
+  let ok = false;
+  for (const api of [true, false]) {
+    if (await get(playpantUrl(name, { api }), dst, { optional: true, headers: ZENODO_HEADERS, timeoutMs: 15 * 60_000, stream: true })) { ok = true; break; }
+  }
+  if (ok) console.log(`Dog play pant の音声 zip: ${(fs.statSync(dst).size / 1e6).toFixed(1)} MB（${Math.round((Date.now() - t0) / 1000)} 秒）`);
+  else console.log('Dog play pant の音声 zip: 届かなかった（飛ばす）');
+  return ok;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

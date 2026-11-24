@@ -7,7 +7,11 @@ import zlib from 'node:zlib';
 
 export const PLAYPANT = {
   record: 18972388,
-  license: 'CC BY 4.0',
+  // 2026-11-25: Zenodo の記録ページは CC BY 4.0 と表記しているが、データ内の `06 Readme.txt`（run 45254846743）は
+  // 「Creative Commons Attribution–NonCommercial 4.0 International (CC BY-NC 4.0)」と書いている。食い違いは安全側に倒して
+  // **NC（非営利）扱い＝ESC-50 と同じ検証専用**にする（数字・表を docs に書くのは可、製品に組み込む学習データにはしない）。
+  license: 'CC BY-NC 4.0 扱い',
+  licenseNote: 'Zenodo の記録ページの表記は CC BY 4.0、データ内の 06 Readme.txt は CC BY-NC 4.0 → 安全側の NC（検証専用、製品には入れない）として扱う',
   url: 'https://zenodo.org/records/18972388',
   files: { annotations: '04 Annotations.zip', metadata: '05 Metadata.csv', readme: '06 Readme.txt', audio: '03 Play session recordings.zip' },
 };
@@ -45,14 +49,17 @@ export function callJa(label) {
 /**
  * 最小の zip 読み（store と deflate だけ。Node に zip が無く、Actions のランナーの unzip に頼らないため）。
  * 中央ディレクトリを後ろから読んで [{ name, data: Buffer }] を返す。ディレクトリ項目は含めない。
+ * 2026-11-25: 音声 zip（377 MB、WAV 30 本で展開後 約 720 MB）を一度に展開しないよう、一覧（zipIndex）と 1 件ずつの展開（zipExtract）に分けた。
+ * unzip() は従来どおり全部を展開する（注釈 zip 123 KB 向け）。zip64（4 GB 超・65,535 件超）は未対応（377 MB・30 件なら要らない）。
  */
-export function unzip(buf) {
+export function zipIndex(buf) {
   const b = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
   let eocd = -1;
   for (let i = b.length - 22; i >= Math.max(0, b.length - 22 - 65535); i--) if (b.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
   if (eocd < 0) throw new Error('zip: 終端レコードが無い');
   const count = b.readUInt16LE(eocd + 10);
   let p = b.readUInt32LE(eocd + 16);
+  if (count === 0xffff || p === 0xffffffff) throw new Error('zip: zip64 は未対応');
   const out = [];
   for (let k = 0; k < count; k++) {
     if (b.readUInt32LE(p) !== 0x02014b50) throw new Error('zip: 中央ディレクトリが壊れている');
@@ -61,17 +68,26 @@ export function unzip(buf) {
     const name = b.subarray(p + 46, p + 46 + nlen).toString('utf8');
     p += 46 + nlen + xlen + clen;
     if (name.endsWith('/')) continue;
-    if (b.readUInt32LE(lh) !== 0x04034b50) throw new Error('zip: ローカルヘッダが壊れている: ' + name);
-    const start = lh + 30 + b.readUInt16LE(lh + 26) + b.readUInt16LE(lh + 28);
-    const raw = b.subarray(start, start + csize);
-    let data;
-    if (method === 0) data = Buffer.from(raw);
-    else if (method === 8) data = zlib.inflateRawSync(raw);
-    else throw new Error(`zip: 未対応の圧縮 ${method}: ${name}`);
-    if (data.length !== usize) throw new Error(`zip: 展開後の大きさが合わない: ${name}`);
-    out.push({ name, data });
+    out.push({ name, method, csize, usize, lh });
   }
   return out;
+}
+/** zipIndex の 1 件を展開して Buffer を返す */
+export function zipExtract(buf, entry) {
+  const b = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+  const { name, method, csize, usize, lh } = entry;
+  if (b.readUInt32LE(lh) !== 0x04034b50) throw new Error('zip: ローカルヘッダが壊れている: ' + name);
+  const start = lh + 30 + b.readUInt16LE(lh + 26) + b.readUInt16LE(lh + 28);
+  const raw = b.subarray(start, start + csize);
+  let data;
+  if (method === 0) data = Buffer.from(raw);
+  else if (method === 8) data = zlib.inflateRawSync(raw);
+  else throw new Error(`zip: 未対応の圧縮 ${method}: ${name}`);
+  if (data.length !== usize) throw new Error(`zip: 展開後の大きさが合わない: ${name}`);
+  return data;
+}
+export function unzip(buf) {
+  return zipIndex(buf).map(e => ({ name: e.name, data: zipExtract(buf, e) }));
 }
 
 const norm = s => String(s ?? '').replace(/^﻿/, '').trim().toLowerCase();
@@ -136,11 +152,11 @@ const ms = v => Math.round(v * 1000);
  * 声の種類ごとの件数・1 回の長さの中央値・25–75%・最長・合計秒を出す。
  * 時刻列が読めなかったファイルは、そのヘッダ行をそのまま挙げる（列名を次の夜に直すため）。
  */
-export function callTypeReport(tables, { source = 'Dog play pant（Zenodo 18972388、CC BY 4.0）' } = {}) {
+export function callTypeReport(tables, { source = `Dog play pant（Zenodo 18972388、${PLAYPANT.license}）` } = {}) {
   if (!tables.length) return '';
   const group = t => (t.name.includes('/') ? t.name.slice(0, t.name.lastIndexOf('/')) : '（直下）');
   const groups = [...new Set(tables.map(group))];
-  let md = `**${source} の注釈（音声はまだ落としていない。表 ${tables.length} 枚、層: ${groups.join('・')}）**\n\n`;
+  let md = `**${source} の注釈（表 ${tables.length} 枚、層: ${groups.join('・')}）**\n\n`;
   const unread = tables.filter(t => !t.rows.length);
   for (const g of groups) {
     const ts = tables.filter(t => group(t) === g && t.rows.length);
@@ -181,7 +197,10 @@ export function recordNote(json, { maxChars = 6000 } = {}) {
   if (!d || typeof d !== 'object') return '';
   const files = (d.files ?? []).map(f => `${f.key}（${f.size >= 1e6 ? (f.size / 1e6).toFixed(0) + ' MB' : Math.round(f.size / 1e3) + ' KB'}）`);
   const text = htmlToText(d.metadata?.description);
+  // ライセンス（旧 API は metadata.license.id、InvenioRDM は metadata.rights[].id / title.en）。Readme の CC BY-NC と食い違うので両方出す
+  const lic = [d.metadata?.license?.id ?? d.metadata?.license, ...(d.metadata?.rights ?? []).map(r => r?.id ?? r?.title?.en ?? r?.title)].filter(v => typeof v === 'string' && v);
   let s = '';
+  if (lic.length) s += `- Zenodo の記録のライセンス欄: ${[...new Set(lic)].join('、')}（${PLAYPANT.licenseNote}）\n`;
   if (files.length) s += `- Zenodo のファイル一覧: ${files.join('、')}\n`;
   if (text) s += `\n<details><summary>Zenodo の説明文（記号の凡例を探す。${text.length} 文字${text.length > maxChars ? `、先頭 ${maxChars} 文字` : ''}）</summary>\n\n\`\`\`\n${text.slice(0, maxChars)}\n\`\`\`\n\n</details>\n`;
   return s;
@@ -213,4 +232,35 @@ export function metadataNote(csvText, { maxUnique = 6 } = {}) {
   const durCol = header.findIndex(h => /duration/i.test(h));
   if (durCol >= 0) { const tot = rows.reduce((p, r) => p + (Number(r[durCol]) || 0), 0); if (tot) s += `  - 合計の長さ: ${(tot / 60).toFixed(1)} 分\n`; }
   return s;
+}
+
+/** `P-01-S-P_1.Table.1.selections.txt` / `P-04-S-P_1.Table` / `P-01-S-P_1.wav` → `P-01-S-P_1`（Readme の「File naming conventions」。注釈と音声を結ぶ幹） */
+export function stemOf(name) {
+  const base = String(name ?? '').split('/').pop();
+  return base.replace(/\.(Table\b.*|wav|txt|tsv|TextGrid)$/i, '');
+}
+
+/**
+ * 音声 zip の WAV の一覧 → Markdown（2026-11-25、(b) の 1 歩目「落として WAV の一覧を出す」）。
+ * wavs = [{ name, csize, usize, sr, ch, bits, fmt, seconds }]（zipIndex ＋ wavHeader）。tables は注釈の表（callTypeReport と同じ形、name と rows）で、
+ * 幹（stemOf）が同じ注釈の件数を層ごとに添える。合計の分数と、Metadata.csv の 124.7 分・48 kHz と合うかを目で見るための表。
+ */
+export function audioListReport(wavs, tables = []) {
+  if (!wavs.length) return '';
+  const group = t => (t.name.includes('/') ? t.name.slice(0, t.name.lastIndexOf('/')).split('/').pop() : '（直下）');
+  const layers = [...new Set(tables.map(group))];
+  const countIn = (stem, layer) => tables.filter(t => group(t) === layer && stemOf(t.name) === stem).reduce((p, t) => p + t.rows.filter(r => !r.tier || /call|sound|vocal/i.test(r.tier)).length, 0);
+  const total = wavs.reduce((p, w) => p + (w.seconds || 0), 0);
+  const mb = n => (n / 1e6).toFixed(1);
+  let md = `### 音声 zip（${PLAYPANT.files.audio}）の WAV ${wavs.length} 本、合計 ${(total / 60).toFixed(1)} 分（zip ${mb(wavs.reduce((p, w) => p + w.csize, 0))} MB → 展開 ${mb(wavs.reduce((p, w) => p + w.usize, 0))} MB）\n\n`;
+  const srs = {}; for (const w of wavs) { const k = `${w.sr} Hz・${w.ch} ch・${w.bits} bit${w.fmt === 3 ? ' float' : ''}`; srs[k] = (srs[k] || 0) + 1; }
+  md += `- 形式の内訳: ${Object.entries(srs).map(([k, v]) => `${k} ${v}`).join('／')}\n`;
+  const noAnn = wavs.filter(w => tables.length && !layers.some(l => countIn(stemOf(w.name), l)));
+  if (tables.length) md += `- 注釈と幹（P-01-S-P_1 など）で結べた WAV: ${wavs.length - noAnn.length}/${wavs.length}${noAnn.length ? `（結べない: ${noAnn.map(w => w.name.split('/').pop()).join('、')}）` : ''}\n`;
+  md += `\n| WAV | 長さ | 形式 | 展開後 MB |${layers.map(l => ` ${l} の声 |`).join('')}\n|---|---|---|---|${layers.map(() => '---|').join('')}\n`;
+  for (const w of [...wavs].sort((a, b) => a.name.localeCompare(b.name))) {
+    const stem = stemOf(w.name);
+    md += `| ${w.name.split('/').pop()} | ${(w.seconds / 60).toFixed(1)} 分 | ${w.sr} Hz・${w.ch} ch・${w.bits} bit | ${mb(w.usize)} |${layers.map(l => ` ${countIn(stem, l)} |`).join('')}\n`;
+  }
+  return md + '\n';
 }

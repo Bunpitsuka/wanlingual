@@ -6,16 +6,20 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PLAYPANT, playpantUrl, ZENODO_HEADERS, callJa, decodeLabel, CODE_LABEL, unzip, isJunk, pickRavenFiles, pickNoteFiles, parseRavenTable, callTypeReport, metadataNote, htmlToText, recordNote } from '../lab/playpant.mjs';
+import { PLAYPANT, playpantUrl, ZENODO_HEADERS, callJa, decodeLabel, CODE_LABEL, unzip, zipIndex, zipExtract, isJunk, pickRavenFiles, pickNoteFiles, parseRavenTable, callTypeReport, metadataNote, htmlToText, recordNote, stemOf, audioListReport } from '../lab/playpant.mjs';
+import { wavHeader, readWav } from '../lab/wav.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const zipBuf = fs.readFileSync(path.join(here, '../fixtures/playpant-annotations.zip'));
+// fixtures/playpant-audio.zip（2026-11-25）: 合成の WAV 3 本（16 bit mono store・32 bit float EXTENSIBLE deflate・壊れた 40 バイト）＋ macOS のごみ＋ notes.txt。本物の音声は入れていない
+const audioBuf = fs.readFileSync(path.join(here, '../fixtures/playpant-audio.zip'));
 const T1 = '04 Annotations/FirstLayer/S01_dog1.Table.1.selections.txt', T2 = '04 Annotations/FirstLayer/S02_dog2.Table.1.selections.txt', T3 = '04 Annotations/SecondLayer/S01_dog1.Table';
 
 test('Zenodo の URL: 空白入りのファイル名をエンコードし、既定は API の /content、api:false で記録ページの ?download=1', () => {
   assert.equal(playpantUrl(PLAYPANT.files.annotations), 'https://zenodo.org/api/records/18972388/files/04%20Annotations.zip/content');
   assert.equal(playpantUrl(PLAYPANT.files.annotations, { api: false }), 'https://zenodo.org/records/18972388/files/04%20Annotations.zip?download=1');
-  assert.equal(PLAYPANT.license, 'CC BY 4.0');
+  assert.equal(PLAYPANT.license, 'CC BY-NC 4.0 扱い', 'Readme が CC BY-NC（run 45254846743）なので安全側');
+  assert.match(PLAYPANT.licenseNote, /検証専用/);
   assert.match(ZENODO_HEADERS['User-Agent'], /wanlingual-lab/);
 });
 
@@ -27,6 +31,53 @@ test('unzip: store と deflate の両方を展開し、ディレクトリ項目�
   assert.match(t1, /5\tSpectrogram 1\t1\t4\.000\t4\.860\t100\t3000\tPant/);
   assert.equal(entries.find(e => e.name.endsWith('TextGrid')).data.toString('utf8'), 'File type = "ooTextFile"\nObject class = "TextGrid"\n');
   assert.throws(() => unzip(Buffer.from('not a zip')), /終端レコード/);
+  // zipIndex + zipExtract（1 件ずつ）は unzip と同じ中身
+  const idx = zipIndex(zipBuf);
+  assert.deepEqual(idx.map(e => e.name), entries.map(e => e.name));
+  assert.ok(idx.every(e => typeof e.csize === 'number' && typeof e.usize === 'number' && typeof e.lh === 'number'));
+  assert.ok(idx.some(e => e.method === 0) && idx.some(e => e.method === 8), 'store と deflate の両方');
+  assert.equal(zipExtract(zipBuf, idx.find(e => e.name === T1)).toString('utf8'), t1);
+});
+
+test('wavHeader: fmt・ch・sr・bits・秒を読み、EXTENSIBLE（0xFFFE）は SubFormat から float を見分ける。readWav は Buffer も受ける', () => {
+  const idx = zipIndex(audioBuf);
+  const w1 = wavHeader(zipExtract(audioBuf, idx.find(e => e.name.endsWith('P-01-S-P_1.wav'))));
+  assert.deepEqual([w1.sr, w1.ch, w1.bits, w1.fmt, +w1.seconds.toFixed(3)], [48000, 1, 16, 1, 0.1]);
+  const w2 = wavHeader(zipExtract(audioBuf, idx.find(e => e.name.endsWith('P-02-S-P_1.wav'))));
+  assert.deepEqual([w2.sr, w2.ch, w2.bits, w2.fmt, +w2.seconds.toFixed(3)], [48000, 2, 32, 3, 0.05], 'EXTENSIBLE の float を 3 に');
+  const x2 = readWav(zipExtract(audioBuf, idx.find(e => e.name.endsWith('P-02-S-P_1.wav'))));
+  assert.equal(x2.sr, 48000);
+  assert.equal(x2.x.length, 2400);
+  assert.ok(Math.abs(Math.max(...x2.x) - 0.5) < 0.01, 'float として読めば振幅 0.5（Int32 と読むと 0 近くになる）');
+  const fx = readWav(path.join(here, '../fixtures/bark4.wav'));
+  assert.ok(fx.x.length > 0 && fx.sr > 0, '従来どおりパスでも読める');
+  assert.throws(() => wavHeader(zipExtract(audioBuf, idx.find(e => e.name.endsWith('P-02-S-P_2.wav'))), 'x'), /no data chunk: x/);
+  assert.throws(() => wavHeader(Buffer.from('xxxx')), /not RIFF/);
+});
+
+test('stemOf / audioListReport: 注釈と音声を幹で結び、WAV ごとの長さ・形式・層ごとの声の数、形式の内訳、結べない WAV を出す', () => {
+  assert.equal(stemOf('04 Annotations/FirstLayer/P-01-S-P_1.Table.1.selections.txt'), 'P-01-S-P_1');
+  assert.equal(stemOf('04 Annotations/SecondLayer/P-04-S-P_1.Table'), 'P-04-S-P_1');
+  assert.equal(stemOf('03 Play session recordings/P-01/P-01-S-P_1.wav'), 'P-01-S-P_1');
+  assert.equal(stemOf('P-13-S-P_3.TextGrid'), 'P-13-S-P_3');
+  const wavs = [
+    { name: '03 Play session recordings/P-02/P-02-S-P_1.wav', csize: 1e6, usize: 2e6, sr: 48000, ch: 2, bits: 32, fmt: 3, seconds: 90 },
+    { name: '03 Play session recordings/P-01/P-01-S-P_1.wav', csize: 3e6, usize: 4e6, sr: 48000, ch: 1, bits: 16, fmt: 1, seconds: 30 },
+  ];
+  const tables = [
+    { name: '04 Annotations/FirstLayer/P-01-S-P_1.Table.1.selections.txt', rows: [{ dur: 0.1, label: 'A' }, { dur: 0.2, label: 'C' }] },
+    { name: '04 Annotations/SecondLayer/P-01-S-P_1.Table', rows: [{ dur: 0.1, label: 'Growl', tier: 'calls' }, { dur: 0.5, label: 'talk', tier: 'noise' }] },
+  ];
+  const md = audioListReport(wavs, tables);
+  assert.match(md, /^### 音声 zip（03 Play session recordings\.zip）の WAV 2 本、合計 2\.0 分（zip 4\.0 MB → 展開 6\.0 MB）/);
+  assert.match(md, /形式の内訳: 48000 Hz・2 ch・32 bit float 1／48000 Hz・1 ch・16 bit 1/);
+  assert.match(md, /結べた WAV: 1\/2（結べない: P-02-S-P_1\.wav）/);
+  assert.match(md, /\| WAV \| 長さ \| 形式 \| 展開後 MB \| FirstLayer の声 \| SecondLayer の声 \|/);
+  assert.match(md, /\| P-01-S-P_1\.wav \| 0\.5 分 \| 48000 Hz・1 ch・16 bit \| 4\.0 \| 2 \| 1 \|/, '2 層目は calls の tier だけ数える');
+  assert.match(md, /\| P-02-S-P_1\.wav \| 1\.5 分 \| 48000 Hz・2 ch・32 bit \| 2\.0 \| 0 \| 0 \|/);
+  assert.ok(md.lastIndexOf('| P-01-S-P_1.wav') < md.lastIndexOf('| P-02-S-P_1.wav'), '表は名前順');
+  assert.equal(audioListReport([]), '');
+  assert.doesNotMatch(audioListReport(wavs), /結べた WAV/, '注釈が無ければ対応の行は出さない');
 });
 
 test('isJunk / pickRavenFiles / pickNoteFiles: macOS のごみを外し、表は .txt と .Table（TextGrid・README は外す）、README は凡例の候補として拾う', () => {
@@ -125,7 +176,11 @@ test('htmlToText / recordNote: Zenodo の説明文のタグを外し、ファイ
   assert.equal(htmlToText('<p>Codes:</p><ul><li>A &amp; B = <b>Bark</b></li><li>C = Whine</li></ul>'), 'Codes:\n- A & B = Bark\n- C = Whine');
   const rec = { files: [{ key: '04 Annotations.zip', size: 123456 }, { key: '03 Play session recordings.zip', size: 377e6 }], metadata: { description: '<p>Vocalization codes: A = Growl</p>' } };
   const s = recordNote(rec);
+  assert.doesNotMatch(s, /ライセンス欄/, 'ライセンスの項目が無ければ出さない');
   assert.match(s, /ファイル一覧: 04 Annotations\.zip（123 KB）、03 Play session recordings\.zip（377 MB）/);
+  // ライセンス欄（旧 API の metadata.license.id と InvenioRDM の metadata.rights[]）は Readme の CC BY-NC と食い違うので出す
+  const s2 = recordNote({ metadata: { license: { id: 'cc-by-4.0' }, rights: [{ id: 'cc-by-4.0', title: { en: 'Creative Commons Attribution 4.0 International' } }] } });
+  assert.match(s2, /^- Zenodo の記録のライセンス欄: cc-by-4\.0（Zenodo の記録ページの表記は CC BY 4\.0、データ内の 06 Readme\.txt は CC BY-NC 4\.0/);
   assert.match(s, /<details><summary>Zenodo の説明文（記号の凡例を探す。\d+ 文字）<\/summary>\n\n```\nVocalization codes: A = Growl\n```/);
   assert.equal(recordNote('{not json'), '');
   assert.equal(recordNote(JSON.stringify(rec)).length, s.length, '文字列の JSON も同じ');

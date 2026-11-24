@@ -22,10 +22,13 @@ jobs:
       - run: npx playwright install --with-deps chromium
       # ffmpeg の apt-get は 2026-11-19（30 分）・11-20（6 分 timeout）と 2 晩つづけて止まったので無くした。
       # CC0 の mp3 → WAV は上で入れた Chromium の Web Audio で復号する（tests/lab/decode.mjs。ffmpeg の復号と波形が一致することは作業環境で確認済み）
-      - name: 検証データを取得（ESC-50 は GitHub raw、CC0 5 本は Hugging Face、Dog play pant の注釈は Zenodo。届かなければ飛ばす。mp3 は Chromium で WAV に）
+      # 2026-11-25: Dog play pant の音声 zip（377 MB）も落とす（PLAYPANT_AUDIO=1。ファイルに流し込む。Zenodo から 1〜数分の見込み。届かなければ飛ばす）
+      - name: 検証データを取得（ESC-50 は GitHub raw、CC0 5 本は Hugging Face、Dog play pant の注釈と音声 zip は Zenodo。届かなければ飛ばす。mp3 は Chromium で WAV に）
         run: node tests/lab/fetch-data.mjs
-      # 2026-11-24: Dog play pant（CC BY 4.0）の注釈だけ先に読む。声の種類（Growl / Whine / Bark …）ごとの件数と長さ。音声 zip（377 MB）は次の夜
-      - name: Dog play pant の注釈（声の種類ごとの件数・1 回の長さ。音声はまだ）
+        env: { PLAYPANT_AUDIO: '1' }
+      # 2026-11-24: Dog play pant（Readme は CC BY-NC 4.0 → 検証専用）の注釈を読む。声の種類（Growl / Whine / Bark …）ごとの件数と長さ。
+      # 2026-11-25: 音声 zip があれば WAV 30 本の一覧（長さ・形式・注釈との対応）も出す。切り出し（種類ごとの lvlDrop・MFCC・犬らしさ）は次の夜
+      - name: Dog play pant の注釈（声の種類ごとの件数・1 回の長さ）と音声 zip の WAV 一覧
         run: node tests/lab/playpant-check.mjs
       - name: 本体の吠え検出・ルールに本物の音を通す
         run: node tests/lab/features-check.mjs

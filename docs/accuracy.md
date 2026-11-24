@@ -285,9 +285,9 @@ mp3 → WAV は、E2E と yamnet-check のためにどの run にも入ってい
 - 吠え 2 本（大型・小型）はどの係数も吠え 40 本の中に入る（基準どおり）。息は 7 係数が離れるが、本体では YAMNet が先に落とす声。
 - **plan #13 への結論（2026-11-20）**: c3 1 本を kNN の 9 本目に足す案は「さみしい（くんくん）を吠えから分ける」ためだけに効く見込みで、威嚇（うなり）には効かない。しかも くんくん は いまの本体では YAMNet の犬の声チェック（既定オフ）で落ちやすい声。→ 正解ラベル付きの本物の犬 20 件がたまったら、c3 の leave-one-out（8 次元 vs 9 次元）は予定どおりやるが、**期待値は「さみしい だけが少し良くなる」程度**に下げておく。数字は変えない。
 
-## Dog play pant（CC BY 4.0）の注釈だけを数えた（2026-11-24、`lab-yamnet` run 45243790948〜45250645427。音声はまだ、判定・本体は変えていない）
+## Dog play pant（Readme は CC BY-NC 4.0 → 検証専用）の注釈だけを数えた（2026-11-24、`lab-yamnet` run 45243790948〜45250645427。音声はまだ、判定・本体は変えていない）
 
-出典: Dog play pant（Zenodo 18972388、CC BY 4.0。ウィーン大学・ELTE BARKS Lab ほか）。`tests/lab/playpant-check.mjs` が注釈 zip（Raven の表 30 枚、1 層目）を読んで Summary に出した数字。**気持ちラベルは無い**（場面は全部「犬と人の遊び」）。声の種類の記号は Zenodo の `06 Readme.txt` の凡例（A Growl／B Whine／C Bark・yelp／D Moan／E Pant／F Cough・woof／G Howl／H Grunts／I Other／J Sneeze／K Shake／L Human vocalizations）。
+出典: Dog play pant（Zenodo 18972388。記録ページは CC BY 4.0 表記だが Readme は CC BY-NC 4.0 → NC 扱い、下の 11-25 の節。ウィーン大学・ELTE BARKS Lab ほか）。`tests/lab/playpant-check.mjs` が注釈 zip（Raven の表 30 枚、1 層目）を読んで Summary に出した数字。**気持ちラベルは無い**（場面は全部「犬と人の遊び」）。声の種類の記号は Zenodo の `06 Readme.txt` の凡例（A Growl／B Whine／C Bark・yelp／D Moan／E Pant／F Cough・woof／G Howl／H Grunts／I Other／J Sneeze／K Shake／L Human vocalizations）。
 
 録音の条件（Metadata.csv 30 行）: BARKS Lab（ブダペスト）の室内、**48 kHz 30/30、16 bit 29・32 bit 1、モノラル 27・ステレオ 3**、PCM WAV。犬 17 頭（6〜24 か月）、30 セッション、**合計 124.7 分**。マイク Sennheiser ME66（27）／ME64（3）、レコーダー Zoom H4 Essential。
 
@@ -316,6 +316,32 @@ mp3 → WAV は、E2E と yamnet-check のためにどの run にも入ってい
 - 遠吠え（G）は 0 回。威嚇の材料（うなり）は遊びのうなりなので「威嚇」の正解にはならない（11-23 の注意どおり）。
 - 1 回の長さ: うなり 534 ms（25–75% 362–963）・吠え／キャン 373 ms（236–495）・くんくん 533 ms（284–699）。ESC-50 の吠え 1 回 145 ms（11-24 の `features-check`）よりどれも長い。Raven の人手の区間は前後に余白が付きがちなので、本体の検出器で切り直した長さと比べるのは (b) の音声を通してから。
 - 2 層目（専門家の修正後、Praat から書き出した `.Table`、tmin／tier／text／tmax）は今夜の run では読めていなかった（拡張子と列名が違った）。読めるように直したので、次の run で 1 層目との件数の差が出る。
+
+### 2 層目（専門家の修正後）と 1 層目の差、ライセンスの食い違い（2026-11-25、`lab-yamnet` run 45254846743。判定・本体は変えていない）
+
+2 層目（`04 Annotations/SecondLayer/P-xx-S-P_n.Table`、Praat の tmin／tier／text／tmax）が種類の名前つきで読めた。tier は **calls 2,055・noise 581**（数えたのは calls。人の声は 2 層目では noise の側）。
+
+| 種類 | 日本語 | 1 層目 | **2 層目** | 差 | 2 層目の 1 回の長さ 中央値（25–75%） |
+|---|---|---|---|---|---|
+| Pant | 息 | 1,400 | **1,294** | −106 | 1,238 ms（559–2,949） |
+| Other | その他 | 238 | 264 | +26 | 397 ms（231–674） |
+| Growl | **うなり** | 179 | **198** | **+19** | 495 ms（362–820） |
+| Grunt | ぶつぶつ | 344 | 163 | −181 | 313 ms（205–559） |
+| Bark/yelp | **吠え／キャン** | 72 | **48** | **−24** | 426 ms（309–848） |
+| Moan | うめき | 22 | 33 | +11 | 547 ms（379–715） |
+| Sneeze | くしゃみ | 52 | 25 | −27 | 241 ms（210–299） |
+| Whine | **くんくん** | 10 | **13** | +3 | 316 ms（175–675） |
+| Cough/woof | 咳／ウーフ | 6 | 10 | +4 | 234 ms（165–252） |
+| Shake | 身震い | 17 | 7 | −10 | 1,251 ms（485–1,520） |
+| Howl | 遠吠え | 0 | 0 | 0 | — |
+| Human vocalizations | 人の声 | 621 | （noise 581 の中） | | |
+
+分かったこと:
+- 専門家の修正で **吠え／キャンは 72 → 48 に減り、うなりは 179 → 198 に増えた**。ぶつぶつ（Grunt）は 344 → 163 と半分（1 層目の注釈者が息やその他と混ぜていたらしい）。くんくん は 10 → 13 で、やはり分布と言える数ではない。
+- (b) で切り出すときは **2 層目（calls）を正**にする（専門家の修正後、種類の名前つき、noise が分けてある）。種類ごとの数は うなり 198・吠え／キャン 48・息 1,294（抜き出して数十）・くんくん 13・うめき 33。
+- 2 層目の「長い ≥710ms」に入る回 1,051／2,055、「短い ≤590ms」874／2,055（息が半分なので参考）。
+- **ライセンスの食い違い**: Zenodo の記録ページは CC BY 4.0 と表記しているが、データ内の `06 Readme.txt` は「**CC BY-NC 4.0**（Attribution–NonCommercial）」と書いている。安全側に倒して **NC 扱い＝ESC-50 と同じ検証専用**にした（件数・分布の表を docs に書くのは可、製品に組み込む学習データにはしない。`tests/lab/playpant.mjs` の `PLAYPANT.license`）。次の run から Zenodo の記録 JSON のライセンス欄も Summary に出す（`recordNote`）。
+- 音声 zip（377 MB）の取得と WAV 30 本の一覧（長さ・形式・注釈との対応）を `lab-yamnet` に足した（`PLAYPANT_AUDIO=1`）。切り出し（種類ごとの lvlDrop・MFCC・犬らしさの行）は次の夜。P-01 は 32 bit（Zoom H4 Essential は 32 bit float）なので、WAV 読みを EXTENSIBLE の float に対応させた（`tests/lab/wav.mjs`）。
 
 ## 既知の弱点（2026-11-01）
 
