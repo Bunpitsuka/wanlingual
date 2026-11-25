@@ -343,6 +343,13 @@ mp3 → WAV は、E2E と yamnet-check のためにどの run にも入ってい
 - **ライセンスの食い違い**: Zenodo の記録ページは CC BY 4.0 と表記しているが、データ内の `06 Readme.txt` は「**CC BY-NC 4.0**（Attribution–NonCommercial）」と書いている。安全側に倒して **NC 扱い＝ESC-50 と同じ検証専用**にした（件数・分布の表を docs に書くのは可、製品に組み込む学習データにはしない。`tests/lab/playpant.mjs` の `PLAYPANT.license`）。次の run から Zenodo の記録 JSON のライセンス欄も Summary に出す（`recordNote`）。
 - 音声 zip（377 MB）の取得と WAV 30 本の一覧（長さ・形式・注釈との対応）を `lab-yamnet` に足した（`PLAYPANT_AUDIO=1`）。切り出し（種類ごとの lvlDrop・MFCC・犬らしさの行）は次の夜。P-01 は 32 bit（Zoom H4 Essential は 32 bit float）なので、WAV 読みを EXTENSIBLE の float に対応させた（`tests/lab/wav.mjs`）。
 
+### 2026-11-26: (b) の 2 歩目＝切り出しのコードを入れた（結果は次の run）
+
+- `tests/lab/playpant.mjs` の `pickClips()`: 2 層目（calls）の時刻から、本体 mic.js と同じ区切り（0.7 秒あいたら切る、6 秒で割る、前 0.25 秒・後 0.12 秒）で **塊** を作り、うなり・吠え／キャン・くんくん・息・うめき・人の声（noise の tier から L だけ）を **1 種類 20 本まで**、セッション（幹）の名前順に 1 本ずつ回して取る（決定的。2 回以上鳴いた塊を先に＝lvlDrop が測れる塊）。塊に違う種類の声が混ざれば捨てる。息だけは別扱い（ほぼ続く小さい声なので、うなり・吠えの隣にあっても塊は捨てない。息の塊は他の声と時間が重なれば捨てる）。
+- `playpant-check.mjs` が WAV を 1 本ずつ展開して塊を `tests/lab/data/playpant/clips/<種類>/<幹>_<開始 ms>.wav`（元の 48 kHz のまま 16 bit モノラル。gitignore、製品にもリポジトリにも入れない）に置き、`features-check.mjs` が **「Dog play pant の切り出し」の表**（種類ごとに 本数・声を拾えた本・2 回以上の本・lvlDrop の中央値／25–75%／最大／>4 dB・1 回の長さ・f0・cent・ESC-50 の吠えから |z| ≥ 2 離れた MFCC 係数）を出す。ESC-50・CC0 の既存の表、要点 3 行、`features-result.json` は変えていない（切り出しは `listData({ playpant: true })` のときだけ入り、`playpant-features.json` に別に出る）。YAMNet にはまだ通さない（本数で時間が伸びるので次）。
+- sr は 16 kHz に落とさず元の 48 kHz のまま置く（本体の f0・cent は元の sr で取る。CC0 5 本も 48 kHz。MFCC は `features-check.mjs` 側で従来どおり 16 kHz に落としてから出す）。11-25 の日報に「16 kHz」と書いたのはこの理由で変えた。
+- 見るところ（次の run の Summary）: (i) 混ざって捨てた塊がどれだけあるか（遊びの場面なので多いかもしれない。多ければ純度の条件を緩める）、(ii) **くんくん・うなり の lvlDrop 中央値が ESC-50 の吠えの 75% 点（2.9 dB）より上か**（CC0 1 本ずつの 5.0〜5.5 dB／2.4 dB が複数頭でも成り立つか）、(iii) MFCC c3 が吠えから離れるか（CC0 では くんくん +2.8σ だけ）、(iv) 人の声の塊を本体がどれだけ「吠え」として拾うか（YAMNet で落とす分の見積もり）。
+
 ## 既知の弱点（2026-11-01）
 
 - 規則的すぎる連吠えは「要求」に寄る。本物の犬は間隔がばらつくので、実データで見直す。

@@ -27,10 +27,12 @@ jobs:
         run: node tests/lab/fetch-data.mjs
         env: { PLAYPANT_AUDIO: '1' }
       # 2026-11-24: Dog play pant（Readme は CC BY-NC 4.0 → 検証専用）の注釈を読む。声の種類（Growl / Whine / Bark …）ごとの件数と長さ。
-      # 2026-11-25: 音声 zip があれば WAV 30 本の一覧（長さ・形式・注釈との対応）も出す。切り出し（種類ごとの lvlDrop・MFCC・犬らしさ）は次の夜
-      - name: Dog play pant の注釈（声の種類ごとの件数・1 回の長さ）と音声 zip の WAV 一覧
+      # 2026-11-25: 音声 zip があれば WAV 30 本の一覧（長さ・形式・注釈との対応）も出す。
+      # 2026-11-26: 2 層目の注釈の時刻で塊（うなり・吠え・くんくん・息・うめき・人の声、1 種類 20 本まで）を切り出して data/playpant/clips/ に置き、
+      # 次の features-check.mjs が種類ごとの lvlDrop・MFCC の表を出す（ESC-50・CC0 の表とは別。YAMNet にはまだ通さない）
+      - name: Dog play pant の注釈（声の種類ごとの件数・1 回の長さ）と音声 zip の WAV 一覧・塊の切り出し
         run: node tests/lab/playpant-check.mjs
-      - name: 本体の吠え検出・ルールに本物の音を通す
+      - name: 本体の吠え検出・ルールに本物の音を通す（Dog play pant の切り出しは種類ごとの表に）
         run: node tests/lab/features-check.mjs
       - name: tfjs の SRI（改ざん検知ハッシュ）が CDN の中身と一致するか
         run: node tests/lab/sri-check.mjs

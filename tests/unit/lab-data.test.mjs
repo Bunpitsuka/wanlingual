@@ -252,3 +252,33 @@ test('今夜の要点 3 行: 吠え検出率、塊の犬らしさ（最低 2 秒
   assert.match(highlightsReport(feat.filter(r => r.source !== 'CC0'), yam).lines[2], /CC0 5 本がこの実行では取れていない/);
   assert.match(highlightsReport(feat, yam, { threshold: 0.5 }).lines[1], /しきい値 0\.5）: 犬の塊 2\/4/);
 });
+
+test('Dog play pant の切り出しの表（2026-11-26）: 種類ごとに 本数・拾えた本・2 回以上・lvlDrop の分布・長さ／f0／cent の中央値・吠えから離れた MFCC 係数。無ければ空', async () => {
+  const { playpantFeatureReport } = await import('../lab/report.mjs');
+  const { listData } = await import('../lab/fetch-data.mjs');
+  const c = (n, lvlDrop) => ({ start: 0, end: 1, n, lvlDrop });
+  const bark = (i, c1) => ({ file: `d${i}`, category: 'dog', source: 'ESC-50', n: 2, lvlDrop: 1, clusterDrops: [c(2, i)], mfcc: { frames: 100, mean: [50, c1, ...Array.from({ length: 11 }, () => (i % 2 ? 1 : -1))] } });
+  const base = [bark(1, 10), bark(2, 12), bark(3, 14), bark(4, 16)]; // 塊の lvlDrop 1/2/3/4 → 中央値 3、75% 点 4
+  const pp = (file, category, n, lvlDrop, dur, f0, cent, c3) => ({ file, category, source: 'PlayPant', seconds: 1.5, n, lvlDrop, dur, f0, cent, mfcc: { frames: n ? 10 : 0, mean: n ? [40, 13, 0, c3, 0, 0, 0, 0, 0, 0, 0, 0, 0] : [] } });
+  const rows = [
+    pp('P-01_000250.wav', 'dog(pp:growl)', 3, 2.4, 0.18, 307, 900, 0), pp('P-02_003000.wav', 'dog(pp:growl)', 1, 0, 0.2, 350, 1000, 0), pp('P-03_001000.wav', 'dog(pp:growl)', 0, 0, 0, 0, 0, 0),
+    pp('P-01_008000.wav', 'dog(pp:whine)', 4, 5.5, 0.085, 459, 1248, 5), pp('P-02_009000.wav', 'dog(pp:whine)', 2, 5.0, 0.09, 470, 1300, 5),
+    pp('P-01_010000.wav', 'human(pp)', 2, 3.0, 0.3, 200, 1500, 0),
+  ];
+  const md = playpantFeatureReport(rows, base);
+  assert.match(md, /^### Dog play pant の切り出し（種類ごと 6 本）/);
+  assert.match(md, /基準: ESC-50 の吠えの塊 4 個、中央値 3\.0 dB・75% 点 4\.0 dB・>4 dB 0%/);
+  // うなり: 3 本・拾えた 2・2 回以上 1（lvlDrop 2.4）。長さの中央値は拾えた 2 本の 180/200 → floor(0.5*2)=1 番目 = 200、f0 350、cent 1000。MFCC は吠えどおり → —
+  assert.match(md, /\| dog\(pp:growl\) \| 3 \| 2 \| 1 \| 2\.4 \| 2\.4–2\.4 \| 2\.4 \| 0% \| 200 \| 350 \| 1000 \| — \|/);
+  // くんくん: 2 本とも 2 回以上、5.0/5.5 → 中央値 5.5・>4 dB 100%、c3 の平均 5 → +5.0σ
+  assert.match(md, /\| dog\(pp:whine\) \| 2 \| 2 \| 2 \| 5\.5 \| 5\.0–5\.5 \| 5\.5 \| 100% \| 90 \| 470 \| 1300 \| c3\(\+5\.0σ\) \|/);
+  assert.match(md, /\| human\(pp\) \| 1 \| 1 \| 1 \| 3\.0 \|/);
+  assert.match(md, /<details><summary>切り出し 1 本ごと（6 本）<\/summary>/);
+  assert.match(md, /\| P-03_001000\.wav \| dog\(pp:growl\) \| 1\.50 \| 0 \| — \| — \| — \| — \|/);
+  assert.equal(playpantFeatureReport([], base), '');
+  // 基準（ESC-50）が無くても表は出る（MFCC の列は —、lvlDrop の基準は — ）
+  assert.match(playpantFeatureReport(rows, []), /吠えの塊 0 個、中央値 — dB/);
+  assert.match(playpantFeatureReport(rows, []), /\| dog\(pp:whine\) \| 2 \| 2 \| 2 \| 5\.5 \|.*\| — \|\n/);
+  // listData は既定では切り出しを含めない（yamnet-check・highlights は従来どおり）
+  assert.ok(listData().every(d => d.source !== 'PlayPant'));
+});

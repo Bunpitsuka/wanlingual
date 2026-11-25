@@ -13,15 +13,17 @@ import { analyzeSamples } from '../../app/js/features.js';
 import { rules, top, CAT } from '../../app/js/classify.js';
 import { readWav } from './wav.mjs';
 import { listData } from './fetch-data.mjs';
-import { eventDistReport, eventToneReport, mfccReport, lvlDropReport } from './report.mjs';
+import { eventDistReport, eventToneReport, mfccReport, lvlDropReport, playpantFeatureReport } from './report.mjs';
 import { clustersFromEvents, resampleTo16k, YAMNET_SR } from '../../app/lab/yamnet.js';
 import { mfccOfEvents } from '../../tools/mfcc-bench.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const data = listData();
+// 2026-11-26: Dog play pant の切り出し（playpant-check.mjs が置く）は別に数えて別の表に出す（ESC-50・CC0 の集計・要点 3 行・features-result.json は変えない）
+const all = listData({ playpant: true });
+const data = all.filter(d => d.source !== 'PlayPant'), ppData = all.filter(d => d.source === 'PlayPant');
 if (!data.length) { console.log('データ無し。先に node tests/lab/fetch-data.mjs'); process.exit(0); }
 
-const rows = data.map(d => {
+const analyze = d => {
   const { x, sr } = readWav(d.path);
   const a = analyzeSamples(x, sr);
   const f = a.feats;
@@ -40,7 +42,9 @@ const rows = data.map(d => {
     return { start: +c.start.toFixed(3), end: +c.end.toFixed(3), n: ca.feats.n, lvlDrop: +ca.feats.lvlDrop.toFixed(2) };
   });
   return { ...d, path: undefined, sr, seconds: +(x.length / sr).toFixed(2), events, mfcc, clusterDrops, n: f.n, lvlDrop: +f.lvlDrop.toFixed(2), dur: +f.dur.toFixed(3), gap: +f.gap.toFixed(3), f0: Math.round(f.f0), cent: Math.round(f.cent), gapCv: +f.gapCv.toFixed(2), peak: +a.peak.toFixed(3), top: r ? top(r).k : null, topP: r ? +Math.max(...Object.values(r)).toFixed(2) : null };
-});
+};
+const rows = data.map(analyze);
+const ppRows = ppData.map(analyze);
 
 const pct = (a, b) => b ? `${a}/${b}（${Math.round(a / b * 100)}%）` : '—';
 const q = (arr, p) => { if (!arr.length) return 0; const s = [...arr].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
@@ -64,7 +68,9 @@ md += eventDistReport(rows); // CC0 5 本があれば（Actions では届く）�
 md += eventToneReport(rows); // 同じく、声 1 回ごとの f0・cent・level の分布（さみしい＝音量の小ささ／威嚇＝低さ が見えるか）
 md += mfccReport(rows); // MFCC c1〜c12 の平均が くんくん／うなり で吠え（ESC-50 40 本）から離れるか（#13。分かれなければ本体に入れない）
 md += lvlDropReport(rows); // 塊ごとの lvlDrop が くんくん／うなり で吠えより大きいか（#13b。`uneven` の境目 1.5→5.5 dB をこの数字で決める）
+md += playpantFeatureReport(ppRows, rows); // Dog play pant の切り出し（種類ごと 20 本まで、複数頭）の lvlDrop・MFCC（2026-11-26。無ければ空）
 console.log(md);
 fs.mkdirSync(path.join(here, 'out'), { recursive: true });
 fs.writeFileSync(path.join(here, 'out/features-result.json'), JSON.stringify({ at: new Date().toISOString(), rows }, null, 1));
+if (ppRows.length) fs.writeFileSync(path.join(here, 'out/playpant-features.json'), JSON.stringify({ at: new Date().toISOString(), rows: ppRows }, null, 1));
 if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + '\n');

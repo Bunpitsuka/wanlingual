@@ -1,5 +1,6 @@
 // Dog play pant（Readme は CC BY-NC 4.0 → 検証専用）の注釈を読んで、声の種類ごとの件数・長さを Summary に出す（2026-11-24）。
-// 2026-11-25: 音声 zip があれば WAV 30 本の一覧（長さ・形式・注釈との対応）も出す（(b) の 1 歩目。切り出しは次）。
+// 2026-11-25: 音声 zip があれば WAV 30 本の一覧（長さ・形式・注釈との対応）も出す（(b) の 1 歩目）。
+// 2026-11-26: さらに 2 層目の注釈の時刻で塊を切り出して data/playpant/clips/<種類>/ に置く（(b) の 2 歩目。features-check.mjs が種類ごとの表を出す）。
 // データは先に tests/lab/fetch-data.mjs が tests/lab/data/playpant/ に落とす（Zenodo に届かなければ無いので、何も出さずに終わる）。
 //
 //   node tests/lab/fetch-data.mjs && node tests/lab/playpant-check.mjs
@@ -11,8 +12,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DATA } from './fetch-data.mjs';
-import { PLAYPANT, unzip, zipIndex, zipExtract, isJunk, pickRavenFiles, pickNoteFiles, parseRavenTable, callTypeReport, metadataNote, recordNote, audioListReport } from './playpant.mjs';
-import { wavHeader } from './wav.mjs';
+import { PLAYPANT, unzip, zipIndex, zipExtract, isJunk, pickRavenFiles, pickNoteFiles, parseRavenTable, callTypeReport, metadataNote, recordNote, audioListReport, pickClips, clipPlanReport, stemOf } from './playpant.mjs';
+import { wavHeader, readWav } from './wav.mjs';
+import { writeWav } from './decode.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const dir = path.join(DATA, 'playpant');
@@ -63,8 +65,41 @@ if (fs.existsSync(audioZip)) {
   md += audioListReport(wavs, tables);
   const otherNames = idx.filter(e => !wavEntries.includes(e)).map(e => e.name);
   md += `- 音声 zip の中身: ${idx.length} ファイル（WAV ${wavEntries.length}${otherNames.length ? `、他 ${otherNames.length}: ${otherNames.slice(0, 5).join('、')}` : ''}）。zip ${(zbuf.length / 1e6).toFixed(1)} MB${wavs.some(w => w.error) ? `。**読めない WAV: ${wavs.filter(w => w.error).map(w => `${w.name.split('/').pop()}（${w.error}）`).join('、')}**` : ''}\n`;
+  // (b) の 2 歩目（2026-11-26）: 2 層目の注釈の時刻で塊を切り出し、tests/lab/data/playpant/clips/<種類>/<幹>_<開始 ms>.wav（元の sr のまま 16 bit モノラル）に置く。
+  // features-check.mjs が listData({ playpant: true }) で読んで、種類ごとの lvlDrop・MFCC の表を出す。YAMNet にはまだ通さない（本数で時間が伸びる）。
+  // sr は落とさない（本体の特徴量 f0・cent は元の sr で取る。CC0 5 本も 48 kHz。MFCC と YAMNet は features-check 側で 16 kHz に落とす）
+  md += clipsWritten(zbuf, wavEntries, tables);
 } else {
   md += `- 音声 zip（約 377 MB）は無い（PLAYPANT_AUDIO=1 で fetch-data.mjs が落とす）\n`;
+}
+function clipsWritten(zbuf, wavEntries, tables) {
+  const picked = pickClips(tables);
+  let s = clipPlanReport(picked);
+  const out = path.join(dir, 'clips');
+  fs.rmSync(out, { recursive: true, force: true }); // 毎回作り直す（注釈の読み方を直したら中身が変わる）
+  const byStem = new Map();
+  for (const c of picked.clips) { if (!byStem.has(c.stem)) byStem.set(c.stem, []); byStem.get(c.stem).push(c); }
+  let n = 0, missing = 0, clipped = 0;
+  const t0 = Date.now();
+  for (const e of wavEntries) {
+    const cs = byStem.get(stemOf(e.name));
+    if (!cs) continue;
+    byStem.delete(stemOf(e.name));
+    let x, sr;
+    try { ({ x, sr } = readWav(zipExtract(zbuf, e))); } catch { missing += cs.length; continue; }
+    for (const c of cs) {
+      const a = Math.round(c.begin * sr), b = Math.min(x.length, Math.round(c.end * sr));
+      if (b - a < sr * 0.05) { missing++; continue; }
+      if (c.end * sr > x.length) clipped++;
+      const d = path.join(out, c.dir);
+      fs.mkdirSync(d, { recursive: true });
+      writeWav(path.join(d, `${c.stem}_${String(Math.round(c.begin * 1000)).padStart(7, '0')}.wav`), x.subarray(a, b), sr);
+      n++;
+    }
+  }
+  const noWav = [...byStem.values()].reduce((p, v) => p + v.length, 0);
+  s += `- 切り出した WAV: **${n}/${picked.clips.length} 本**（${Math.round((Date.now() - t0) / 1000)} 秒）${missing ? `、読めない・短すぎて飛ばした ${missing}` : ''}${noWav ? `、音声が無い幹の分 ${noWav}` : ''}${clipped ? `、ファイル末尾で切れた ${clipped}` : ''}。置き場 \`tests/lab/data/playpant/clips/<種類>/\`（gitignore。NC 扱いなのでリポジトリには入れない）\n`;
+  return s;
 }
 md += `- 出典: ${PLAYPANT.url}（${PLAYPANT.license}: ${PLAYPANT.licenseNote}）\n`;
 console.log(md);

@@ -234,6 +234,91 @@ export function metadataNote(csvText, { maxUnique = 6 } = {}) {
   return s;
 }
 
+/** 切り出す声の種類（日本語 → clips/ のフォルダ名）。人の声は「犬以外の誤検出の材料」（犬と遊んでいる人の声） */
+export const CLIP_TYPES = { 'うなり': 'growl', '吠え／キャン': 'bark', 'くんくん': 'whine', '息': 'pant', 'うめき': 'moan', '人の声': 'human' };
+const isCallTier = t => !t || /call|sound|vocal/i.test(t);
+
+/**
+ * 注釈 → 切り出す塊の一覧（2026-11-26、datasets.md 次の一手 4 の (b) の 2 歩目）。
+ * tables: parseRavenTable の結果に name を添えたもの（playpant-check と同じ）。layer: 使う層（フォルダ名の正規表現。既定は 2 層目 /second/i。無ければ全部の表）。
+ * 本体 mic.js と同じく、声と声の間が gapSec 未満なら 1 つの塊にまとめ（maxSec を超えるところで区切る）、前 preRoll・後 postRoll を足す。
+ * 塊の中に違う種類の声が混ざれば捨てる（種類ごとの表の純度のため。混ざった塊の数は counts.mixed に残す）。
+ * 息（パンティング）だけは別扱い: ほぼ続いている小さい声なので他の種類の塊には混ぜず、息の塊は他の声と時間が重なれば捨てる。
+ * calls 以外の tier（2 層目の noise 等）は 人の声 だけ拾う。種類ごとに perType 本まで、幹（セッション）の名前順に 1 本ずつ回して取る（決定的で、1 セッションに偏らない）。
+ * 各幹の中では 2 回以上鳴いた塊を先に（lvlDrop が測れるのは n ≥ 2）、同じなら時刻順。
+ * 戻り値: { layer, clips: [{ type, dir, stem, begin, end, calls }], counts: { [type]: { all, mixed, multi, picked, stems } } }（begin/end は余白込みの秒、0 未満は 0）
+ */
+export function pickClips(tables, { layer = /second/i, perType = 20, gapSec = 0.7, maxSec = 6, preRoll = 0.25, postRoll = 0.12, types = CLIP_TYPES } = {}) {
+  const group = t => (t.name.includes('/') ? t.name.slice(0, t.name.lastIndexOf('/')).split('/').pop() : '（直下）');
+  let use = tables.filter(t => layer && layer.test(group(t)) && t.rows.length);
+  const layerName = use.length ? group(use[0]) : '（全部の表）';
+  if (!use.length) use = tables.filter(t => t.rows.length);
+  const byStem = new Map();
+  for (const t of use) {
+    const stem = stemOf(t.name);
+    if (!byStem.has(stem)) byStem.set(stem, []);
+    for (const r of t.rows) {
+      const ja = callJa(r.label);
+      if (!isCallTier(r.tier) && ja !== '人の声') continue; // noise 等の tier は人の声だけ
+      byStem.get(stem).push({ begin: r.begin, end: r.end, ja });
+    }
+  }
+  const counts = {};
+  for (const ja of Object.keys(types)) counts[ja] = { all: 0, mixed: 0, multi: 0, picked: 0, stems: 0 };
+  const cluster = rows => {
+    const out = [];
+    let cur = null;
+    for (const r of rows) {
+      if (cur && r.begin - cur.end < gapSec && r.begin - cur.begin < maxSec) { cur.end = Math.max(cur.end, r.end); cur.calls++; cur.jas.add(r.ja); }
+      else { if (cur) out.push(cur); cur = { begin: r.begin, end: r.end, calls: 1, jas: new Set([r.ja]) }; }
+    }
+    if (cur) out.push(cur);
+    return out;
+  };
+  const perStem = new Map();
+  for (const stem of [...byStem.keys()].sort()) {
+    const rows = byStem.get(stem).sort((a, b) => a.begin - b.begin);
+    // 息（パンティング）は遊びの間ほぼ続いていて小さい声なので、他の種類の塊とは別に作る（うなり・吠えの塊が「息が隣にある」だけで捨てられないように）。
+    // 息の塊は、うなり・吠え等（息以外）の声と時間が重なれば捨てる（息だけの音にする）
+    const loud = rows.filter(r => r.ja !== '息'), pants = rows.filter(r => r.ja === '息');
+    const clusters = cluster(loud);
+    for (const c of cluster(pants)) { if (loud.some(r => r.begin < c.end && r.end > c.begin)) c.jas.add('（重なり）'); clusters.push(c); }
+    const pure = [];
+    for (const c of clusters) {
+      const ja = [...c.jas][0];
+      if (c.jas.size > 1) { for (const j of c.jas) if (counts[j]) counts[j].mixed++; continue; }
+      if (!types[ja]) continue;
+      counts[ja].all++;
+      if (c.calls >= 2) counts[ja].multi++;
+      pure.push({ type: ja, dir: types[ja], stem, begin: +Math.max(0, c.begin - preRoll).toFixed(3), end: +(c.end + postRoll).toFixed(3), calls: c.calls });
+    }
+    pure.sort((a, b) => (b.calls >= 2) - (a.calls >= 2) || a.begin - b.begin);
+    perStem.set(stem, pure);
+  }
+  const clips = [];
+  for (const ja of Object.keys(types)) {
+    const queues = [...perStem.keys()].sort().map(s => perStem.get(s).filter(c => c.type === ja));
+    counts[ja].stems = queues.filter(q => q.length).length;
+    let got = 0;
+    for (let round = 0; got < perType && queues.some(q => q.length > round); round++) {
+      for (const q of queues) { if (got >= perType) break; if (q[round]) { clips.push(q[round]); got++; } }
+    }
+    counts[ja].picked = got;
+  }
+  return { layer: layerName, clips, counts };
+}
+
+/** pickClips の結果 → Markdown（どの層から、種類ごとに 塊がいくつ・混ざって捨てた数・2 回以上の塊・選んだ本数・セッション数） */
+export function clipPlanReport(picked, { perType = 20 } = {}) {
+  const { layer, clips, counts } = picked;
+  let md = `### 切り出す塊（${layer} の注釈。本体 mic.js と同じく 0.7 秒あいたら区切り、前 0.25 秒・後 0.12 秒。違う種類が混ざった塊は捨て、1 種類 ${perType} 本まで、セッションの名前順に 1 本ずつ）\n\n`;
+  md += `| 種類 | フォルダ | 塊（純） | 混ざって捨てた | 2 回以上の塊 | 選んだ | セッション |\n|---|---|---|---|---|---|---|\n`;
+  for (const [ja, c] of Object.entries(counts)) md += `| ${ja} | ${CLIP_TYPES[ja]} | ${c.all} | ${c.mixed} | ${c.multi} | ${c.picked} | ${c.stems} |\n`;
+  const sec = clips.reduce((p, c) => p + (c.end - c.begin), 0);
+  md += `\n- 合計 ${clips.length} 本・${sec.toFixed(1)} 秒（2 回以上鳴いた塊 ${clips.filter(c => c.calls >= 2).length} 本）\n`;
+  return md;
+}
+
 /** `P-01-S-P_1.Table.1.selections.txt` / `P-04-S-P_1.Table` / `P-01-S-P_1.wav` → `P-01-S-P_1`（Readme の「File naming conventions」。注釈と音声を結ぶ幹） */
 export function stemOf(name) {
   const base = String(name ?? '').split('/').pop();

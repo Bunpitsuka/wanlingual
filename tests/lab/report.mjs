@@ -181,19 +181,27 @@ export function eventToneReport(rows, { lowHz = 320, highHz = 590, darkHz = 1300
  * 1 本も離れた係数が無ければ、MFCC を足してもルール・kNN の助けにならない見込み。c0 は音量に近いので表から外す。
  * ESC-50 dog に mfcc が 2 本以上無ければ空文字。
  */
+const hasMfcc = (r, nCoef = 12) => r.mfcc && r.mfcc.frames > 0 && Array.isArray(r.mfcc.mean) && r.mfcc.mean.length > nCoef;
+/** 係数 c1..cN ごとの平均 μ と標準偏差 σ（ファイルごとの平均の分布）。2026-11-26 に mfccReport から分けた（playpantFeatureReport と共用） */
+export function mfccStats(list, nCoef = 12) {
+  return Array.from({ length: nCoef }, (_, k) => {
+    const i = k + 1, v = list.map(r => r.mfcc.mean[i]); const mu = v.reduce((a, b) => a + b, 0) / v.length;
+    return { mu, sd: Math.sqrt(v.reduce((a, b) => a + (b - mu) ** 2, 0) / v.length) };
+  });
+}
+/** 基準 ref（mfccStats）から |z| ≥ zMin 離れた係数を「c3(+2.8σ)」の形で。無ければ '—' */
+export function farCoefs(means, ref, { zMin = 2 } = {}) {
+  return ref.map((s, k) => [k + 1, s.sd > 1e-9 ? (means[k + 1] - s.mu) / s.sd : 0]).filter(([, zz]) => Math.abs(zz) >= zMin)
+    .map(([c, zz]) => `c${c}(${zz > 0 ? '+' : '−'}${Math.abs(zz).toFixed(1)}σ)`).join(' ') || '—';
+}
 export function mfccReport(rows, { zMin = 2, nCoef = 12 } = {}) {
-  const has = r => r.mfcc && r.mfcc.frames > 0 && Array.isArray(r.mfcc.mean) && r.mfcc.mean.length > nCoef;
+  const has = r => hasMfcc(r, nCoef);
   const dogs = rows.filter(r => r.source === 'ESC-50' && r.category === 'dog' && has(r));
   if (dogs.length < 2) return '';
   const coefs = Array.from({ length: nCoef }, (_, i) => i + 1); // c1..c12
-  const stats = list => coefs.map(i => {
-    const v = list.map(r => r.mfcc.mean[i]); const mu = v.reduce((a, b) => a + b, 0) / v.length;
-    return { mu, sd: Math.sqrt(v.reduce((a, b) => a + (b - mu) ** 2, 0) / v.length) };
-  });
+  const stats = list => mfccStats(list, nCoef);
   const ref = stats(dogs);
-  const z = (v, i) => ref[i].sd > 1e-9 ? (v - ref[i].mu) / ref[i].sd : 0;
-  const far = means => coefs.map((c, i) => [c, z(means[c], i)]).filter(([, zz]) => Math.abs(zz) >= zMin)
-    .map(([c, zz]) => `c${c}(${zz > 0 ? '+' : '−'}${Math.abs(zz).toFixed(1)}σ)`).join(' ') || '—';
+  const far = means => farCoefs(means, ref, { zMin });
   const f1 = v => v.toFixed(1);
   const frames = list => list.reduce((a, r) => a + r.mfcc.frames, 0);
   const byCat = cat => rows.filter(r => r.source === 'ESC-50' && r.category === cat && has(r));
@@ -283,6 +291,44 @@ export function lvlDropReport(rows, { evenMax = 1.5, unevenMin = 5.5, midDb = 4 
   md += `\n- ESC-50 の吠え: ファイル全体（5 秒、2 回以上鳴いた ${whole.length} 本）の中央値 ${whole.length ? f1(q(whole, 0.5)) : '—'} dB → 塊ごと（${d.length} 塊）の中央値 ${f1(q(d, 0.5))} dB、>${midDb} dB の割合 ${share(whole, v => v > midDb)} → ${share(d, v => v > midDb)}。`;
   md += cc0.length ? `\n- CC0 の 5 本（くんくん・うなり・息・大型犬・小型犬）は上の行。くんくん・うなり の塊が吠えの 25–75% の上（${f1(q(d, 0.75))} dB）より大きければ、塊単位でも「小さい声が混ざる」が見えている。` : `\n- CC0 の 5 本（くんくん・うなり・息・大型犬・小型犬）はこの実行では取れていない（Hugging Face に届かない環境。Actions の lab-yamnet では届く）。`;
   md += `\n- 注意: ESC-50 は 5 秒で切られたクリップなので、塊の数は本体の連続監視より少なめ。CC0 は 1 種類 1 本（1 頭）。\n`;
+  return md + '\n';
+}
+
+/**
+ * Dog play pant の切り出し（種類ごとの塊）を本体の検出器に通した表（2026-11-26、(b) の 2 歩目）。
+ * pp: features-check.mjs が切り出し（source 'PlayPant'、category `dog(pp:growl)` 等、ppType）ごとに出した行（n, lvlDrop, dur, f0, cent, mfcc, seconds）。
+ * base: ESC-50・CC0 の行（基準）。lvlDrop の基準は ESC-50 の吠えの塊（clusterDrops、n ≥ 2）、MFCC の基準は mfccReport と同じ ESC-50 吠え 40 本。
+ * 種類ごとに: 本数、本体が声を拾えた本（n > 0）、2 回以上鳴いた本、lvlDrop（n ≥ 2 の本だけ。中央値・25–75%・>midDb の割合）、
+ * 1 回の長さ・f0・cent の中央値、MFCC で吠えから離れた係数（種類の平均で）。CC0 は 1 種類 1 本だったが、ここは 1 種類 20 本・最大 17 頭なので分布で見られる。
+ * pp が空なら空文字。
+ */
+export function playpantFeatureReport(pp, base, { zMin = 2, nCoef = 12, midDb = 4 } = {}) {
+  if (!pp.length) return '';
+  const q = (arr, p) => { if (!arr.length) return null; const s = [...arr].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
+  const f1 = v => v == null ? '—' : v.toFixed(1), fi = v => v == null ? '—' : String(Math.round(v));
+  const share = (arr, pred) => arr.length ? `${Math.round(arr.filter(pred).length / arr.length * 100)}%` : '—';
+  const escDogs = base.filter(r => r.source === 'ESC-50' && r.category === 'dog');
+  const refDrops = escDogs.flatMap(r => (r.clusterDrops ?? []).filter(c => c.n >= 2).map(c => c.lvlDrop));
+  const mfccDogs = escDogs.filter(r => hasMfcc(r, nCoef));
+  const ref = mfccDogs.length >= 2 ? mfccStats(mfccDogs, nCoef) : null;
+  const types = [...new Set(pp.map(r => r.category))];
+  let md = `### Dog play pant の切り出し（種類ごと ${pp.length} 本）を本体の検出器に通した結果（#13b・#13 の材料。検証専用、製品には入れない）\n\n`;
+  md += `2 層目の注釈の時刻で切り出した塊（本体 mic.js と同じ区切り・余白）ごとに、本体と同じ \`analyzeSamples()\` を掛けた。lvlDrop は 2 回以上鳴いた本だけ（基準: ESC-50 の吠えの塊 ${refDrops.length} 個、中央値 ${f1(q(refDrops, 0.5))} dB・75% 点 ${f1(q(refDrops, 0.75))} dB・>${midDb} dB ${share(refDrops, v => v > midDb)}）。MFCC は 16 kHz に落としてから（基準: ESC-50 吠え ${mfccDogs.length} 本の 平均 ± σ、|z| ≥ ${zMin} を「離れた係数」）。\n\n`;
+  md += `| 種類 | 本 | 声を拾えた | 2 回以上 | lvlDrop 中央値 dB | 25–75% | 最大 | >${midDb} dB | 1 回の長さ ms | f0 Hz | cent Hz | 吠えから離れた MFCC 係数 |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n`;
+  const result = {};
+  for (const cat of types) {
+    const list = pp.filter(r => r.category === cat), det = list.filter(r => r.n > 0), multi = list.filter(r => r.n >= 2);
+    const d = multi.map(r => r.lvlDrop).filter(Number.isFinite);
+    const m = list.filter(r => hasMfcc(r, nCoef));
+    const far = ref && m.length ? farCoefs([0, ...mfccStats(m, nCoef).map(s => s.mu)], ref, { zMin }) : '—';
+    const f0s = det.map(r => r.f0).filter(v => v > 0);
+    result[cat] = { n: list.length, detected: det.length, multi: multi.length, lvlDropMedian: q(d, 0.5), far };
+    md += `| ${cat} | ${list.length} | ${det.length} | ${multi.length} | ${f1(q(d, 0.5))} | ${d.length ? `${f1(q(d, 0.25))}–${f1(q(d, 0.75))}` : '—'} | ${d.length ? f1(Math.max(...d)) : '—'} | ${share(d, v => v > midDb)} | ${fi(q(det.map(r => r.dur * 1000), 0.5))} | ${fi(q(f0s, 0.5))} | ${fi(q(det.map(r => r.cent), 0.5))} | ${far} |\n`;
+  }
+  md += `\n- 読み方: くんくん・うなり の lvlDrop 中央値が吠えの 75% 点（${f1(q(refDrops, 0.75))} dB）より上なら、CC0 1 本ずつの結果（くんくん 5.0〜5.5 dB、うなり 2.4 dB）が複数頭でも成り立つ。人の声（human）は犬以外の誤検出の材料（本体は音量だけなので拾うのが普通。YAMNet で落とす分）。\n`;
+  md += `- 注意: 遊びの場面の録音（犬と人が一緒にいる）なので、塊の余白に人の声や物音が入ることがある。混ざった注釈の塊は捨ててある。YAMNet にはまだ通していない（本数で時間が伸びるので次）。\n`;
+  const perClip = pp.map(r => `| ${r.file} | ${r.category} | ${(r.seconds ?? 0).toFixed(2)} | ${r.n} | ${r.n >= 2 ? f1(r.lvlDrop) : '—'} | ${r.n ? Math.round(r.dur * 1000) : '—'} | ${r.f0 || '—'} | ${r.cent || '—'} |`).join('\n');
+  md += `\n<details><summary>切り出し 1 本ごと（${pp.length} 本）</summary>\n\n| ファイル | 種類 | 秒 | 回数 | lvlDrop | 長さ ms | f0 | cent |\n|---|---|---|---|---|---|---|---|\n${perClip}\n\n</details>\n`;
   return md + '\n';
 }
 

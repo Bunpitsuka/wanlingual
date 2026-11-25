@@ -70,8 +70,13 @@ export function pickEsc50(csvText) {
   return [...dogs, ...others];
 }
 
-/** 取得済みデータの一覧 [{file, path, category, source}]。無いものは含めない */
-export function listData() {
+/**
+ * 取得済みデータの一覧 [{file, path, category, source}]。無いものは含めない。
+ * playpant: true なら Dog play pant の切り出し（playpant-check.mjs が data/playpant/clips/<種類>/ に置く。2026-11-26）も足す
+ * （source 'PlayPant'、category は犬の声なら `dog(pp:growl)` 等、人の声は `human(pp)`、ppType にフォルダ名）。
+ * 既定は false: yamnet-check.mjs（本数で時間が伸びる）と highlights.mjs（ESC-50・CC0 の集計）はいままでどおり。
+ */
+export function listData({ playpant = false } = {}) {
   const out = [];
   const csv = path.join(DATA, 'esc50/esc50.csv');
   if (fs.existsSync(csv)) {
@@ -83,6 +88,14 @@ export function listData() {
   const cc0 = path.join(DATA, 'cc0');
   if (fs.existsSync(cc0)) {
     for (const f of fs.readdirSync(cc0).filter(f => /\.wav$/i.test(f)).sort()) out.push({ file: f, path: path.join(cc0, f), category: 'dog(cc0)', source: 'CC0' });
+  }
+  const clips = path.join(DATA, 'playpant/clips');
+  if (playpant && fs.existsSync(clips)) {
+    for (const t of fs.readdirSync(clips).sort()) {
+      const d = path.join(clips, t);
+      if (!fs.statSync(d).isDirectory()) continue;
+      for (const f of fs.readdirSync(d).filter(f => /\.wav$/i.test(f)).sort()) out.push({ file: f, path: path.join(d, f), category: t === 'human' ? 'human(pp)' : `dog(pp:${t})`, source: 'PlayPant', ppType: t });
+    }
   }
   return out;
 }
