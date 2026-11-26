@@ -236,6 +236,8 @@ export function metadataNote(csvText, { maxUnique = 6 } = {}) {
 
 /** 切り出す声の種類（日本語 → clips/ のフォルダ名）。人の声は「犬以外の誤検出の材料」（犬と遊んでいる人の声） */
 export const CLIP_TYPES = { 'うなり': 'growl', '吠え／キャン': 'bark', 'くんくん': 'whine', '息': 'pant', 'うめき': 'moan', '人の声': 'human' };
+/** 混ざった塊（2026-11-27）: 違う種類の声が 0.7 秒以内に続いた塊をそのまま 1 本に。本体 mic.js は種類を知らずに 1 塊にするので、実態に近い行になる。clips/mixed/ */
+export const MIXED_TYPE = '混ざり', MIXED_DIR = 'mixed';
 const isCallTier = t => !t || /call|sound|vocal/i.test(t);
 
 /**
@@ -246,7 +248,9 @@ const isCallTier = t => !t || /call|sound|vocal/i.test(t);
  * 息（パンティング）だけは別扱い: ほぼ続いている小さい声なので他の種類の塊には混ぜず、息の塊は他の声と時間が重なれば捨てる。
  * calls 以外の tier（2 層目の noise 等）は 人の声 だけ拾う。種類ごとに perType 本まで、幹（セッション）の名前順に 1 本ずつ回して取る（決定的で、1 セッションに偏らない）。
  * 各幹の中では 2 回以上鳴いた塊を先に（lvlDrop が測れるのは n ≥ 2）、同じなら時刻順。
- * 戻り値: { layer, clips: [{ type, dir, stem, begin, end, calls }], counts: { [type]: { all, mixed, multi, picked, stems } } }（begin/end は余白込みの秒、0 未満は 0）
+ * 2026-11-27: 混ざった塊（息以外の種類が 2 つ以上）も捨てずに type '混ざり'（dir 'mixed'）として perType 本まで取る（clip.mix に「うなり+吠え／キャン」の形で中身）。
+ * 本体 mic.js は種類を知らずに 1 塊にするので、こちらの方が実態に近い。counts['混ざり'] は { all: 混ざった塊の数, mixed: 0, multi, picked, stems }、mixes に組み合わせごとの数。
+ * 戻り値: { layer, clips: [{ type, dir, stem, begin, end, calls, mix? }], counts: { [type]: { all, mixed, multi, picked, stems } }, mixes: { [組み合わせ]: 数 } }（begin/end は余白込みの秒、0 未満は 0）
  */
 export function pickClips(tables, { layer = /second/i, perType = 20, gapSec = 0.7, maxSec = 6, preRoll = 0.25, postRoll = 0.12, types = CLIP_TYPES } = {}) {
   const group = t => (t.name.includes('/') ? t.name.slice(0, t.name.lastIndexOf('/')).split('/').pop() : '（直下）');
@@ -263,8 +267,8 @@ export function pickClips(tables, { layer = /second/i, perType = 20, gapSec = 0.
       byStem.get(stem).push({ begin: r.begin, end: r.end, ja });
     }
   }
-  const counts = {};
-  for (const ja of Object.keys(types)) counts[ja] = { all: 0, mixed: 0, multi: 0, picked: 0, stems: 0 };
+  const counts = {}, mixes = {};
+  for (const ja of [...Object.keys(types), MIXED_TYPE]) counts[ja] = { all: 0, mixed: 0, multi: 0, picked: 0, stems: 0 };
   const cluster = rows => {
     const out = [];
     let cur = null;
@@ -286,17 +290,28 @@ export function pickClips(tables, { layer = /second/i, perType = 20, gapSec = 0.
     const pure = [];
     for (const c of clusters) {
       const ja = [...c.jas][0];
-      if (c.jas.size > 1) { for (const j of c.jas) if (counts[j]) counts[j].mixed++; continue; }
+      const clip = { stem, begin: +Math.max(0, c.begin - preRoll).toFixed(3), end: +(c.end + postRoll).toFixed(3), calls: c.calls };
+      if (c.jas.size > 1) {
+        for (const j of c.jas) if (counts[j]) counts[j].mixed++;
+        if (c.jas.has('息')) continue; // 息の塊が他の声と重なったもの（その声は息以外の塊の側で数えてある）
+        if (![...c.jas].some(j => types[j])) continue; // 切り出す種類（うなり・吠え…）が 1 つも入らない塊（ぶつぶつ+その他 など）は取らない
+        const mix = [...c.jas].sort().join('+'); // 息以外の種類が 2 つ以上（人の声も含む）
+        mixes[mix] = (mixes[mix] || 0) + 1;
+        counts[MIXED_TYPE].all++;
+        if (c.calls >= 2) counts[MIXED_TYPE].multi++;
+        pure.push({ type: MIXED_TYPE, dir: MIXED_DIR, ...clip, mix });
+        continue;
+      }
       if (!types[ja]) continue;
       counts[ja].all++;
       if (c.calls >= 2) counts[ja].multi++;
-      pure.push({ type: ja, dir: types[ja], stem, begin: +Math.max(0, c.begin - preRoll).toFixed(3), end: +(c.end + postRoll).toFixed(3), calls: c.calls });
+      pure.push({ type: ja, dir: types[ja], ...clip });
     }
     pure.sort((a, b) => (b.calls >= 2) - (a.calls >= 2) || a.begin - b.begin);
     perStem.set(stem, pure);
   }
   const clips = [];
-  for (const ja of Object.keys(types)) {
+  for (const ja of [...Object.keys(types), MIXED_TYPE]) {
     const queues = [...perStem.keys()].sort().map(s => perStem.get(s).filter(c => c.type === ja));
     counts[ja].stems = queues.filter(q => q.length).length;
     let got = 0;
@@ -305,17 +320,19 @@ export function pickClips(tables, { layer = /second/i, perType = 20, gapSec = 0.
     }
     counts[ja].picked = got;
   }
-  return { layer: layerName, clips, counts };
+  return { layer: layerName, clips, counts, mixes };
 }
 
 /** pickClips の結果 → Markdown（どの層から、種類ごとに 塊がいくつ・混ざって捨てた数・2 回以上の塊・選んだ本数・セッション数） */
 export function clipPlanReport(picked, { perType = 20 } = {}) {
-  const { layer, clips, counts } = picked;
-  let md = `### 切り出す塊（${layer} の注釈。本体 mic.js と同じく 0.7 秒あいたら区切り、前 0.25 秒・後 0.12 秒。違う種類が混ざった塊は捨て、1 種類 ${perType} 本まで、セッションの名前順に 1 本ずつ）\n\n`;
-  md += `| 種類 | フォルダ | 塊（純） | 混ざって捨てた | 2 回以上の塊 | 選んだ | セッション |\n|---|---|---|---|---|---|---|\n`;
-  for (const [ja, c] of Object.entries(counts)) md += `| ${ja} | ${CLIP_TYPES[ja]} | ${c.all} | ${c.mixed} | ${c.multi} | ${c.picked} | ${c.stems} |\n`;
+  const { layer, clips, counts, mixes = {} } = picked;
+  let md = `### 切り出す塊（${layer} の注釈。本体 mic.js と同じく 0.7 秒あいたら区切り、前 0.25 秒・後 0.12 秒。違う種類が混ざった塊は種類の表からは外して「混ざり」に、1 種類 ${perType} 本まで、セッションの名前順に 1 本ずつ）\n\n`;
+  md += `| 種類 | フォルダ | 塊（純） | 混ざって外した | 2 回以上の塊 | 選んだ | セッション |\n|---|---|---|---|---|---|---|\n`;
+  for (const [ja, c] of Object.entries(counts)) md += `| ${ja} | ${CLIP_TYPES[ja] ?? MIXED_DIR} | ${c.all} | ${ja === MIXED_TYPE ? '—' : c.mixed} | ${c.multi} | ${c.picked} | ${c.stems} |\n`;
   const sec = clips.reduce((p, c) => p + (c.end - c.begin), 0);
   md += `\n- 合計 ${clips.length} 本・${sec.toFixed(1)} 秒（2 回以上鳴いた塊 ${clips.filter(c => c.calls >= 2).length} 本）\n`;
+  const mixList = Object.entries(mixes).sort((a, b) => b[1] - a[1]);
+  if (mixList.length) md += `- 混ざりの内訳（息以外の種類が 2 つ以上。本体 mic.js はこれをそのまま 1 塊にする）: ${mixList.map(([k, v]) => `${k} ${v}`).join('・')}\n`;
   return md;
 }
 

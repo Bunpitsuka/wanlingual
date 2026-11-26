@@ -259,22 +259,29 @@ test('Dog play pant の切り出しの表（2026-11-26）: 種類ごとに 本�
   const c = (n, lvlDrop) => ({ start: 0, end: 1, n, lvlDrop });
   const bark = (i, c1) => ({ file: `d${i}`, category: 'dog', source: 'ESC-50', n: 2, lvlDrop: 1, clusterDrops: [c(2, i)], mfcc: { frames: 100, mean: [50, c1, ...Array.from({ length: 11 }, () => (i % 2 ? 1 : -1))] } });
   const base = [bark(1, 10), bark(2, 12), bark(3, 14), bark(4, 16)]; // 塊の lvlDrop 1/2/3/4 → 中央値 3、75% 点 4
-  const pp = (file, category, n, lvlDrop, dur, f0, cent, c3) => ({ file, category, source: 'PlayPant', seconds: 1.5, n, lvlDrop, dur, f0, cent, mfcc: { frames: n ? 10 : 0, mean: n ? [40, 13, 0, c3, 0, 0, 0, 0, 0, 0, 0, 0, 0] : [] } });
+  const pp = (file, category, n, lvlDrop, dur, f0, cent, c3, peakDb) => ({ file, category, source: 'PlayPant', seconds: 1.5, n, lvlDrop, dur, f0, cent, peakDb, mfcc: { frames: n ? 10 : 0, mean: n ? [40, 13, 0, c3, 0, 0, 0, 0, 0, 0, 0, 0, 0] : [] } });
   const rows = [
-    pp('P-01_000250.wav', 'dog(pp:growl)', 3, 2.4, 0.18, 307, 900, 0), pp('P-02_003000.wav', 'dog(pp:growl)', 1, 0, 0.2, 350, 1000, 0), pp('P-03_001000.wav', 'dog(pp:growl)', 0, 0, 0, 0, 0, 0),
+    pp('P-01_000250.wav', 'dog(pp:growl)', 3, 2.4, 0.18, 307, 900, 0, -20.0), pp('P-02_003000.wav', 'dog(pp:growl)', 1, 0, 0.2, 350, 1000, 0, -30.5), pp('P-03_001000.wav', 'dog(pp:growl)', 0, 0, 0, 0, 0, 0, -52.3),
     pp('P-01_008000.wav', 'dog(pp:whine)', 4, 5.5, 0.085, 459, 1248, 5), pp('P-02_009000.wav', 'dog(pp:whine)', 2, 5.0, 0.09, 470, 1300, 5),
-    pp('P-01_010000.wav', 'human(pp)', 2, 3.0, 0.3, 200, 1500, 0),
+    pp('P-01_010000.wav', 'human(pp)', 2, 3.0, 0.3, 200, 1500, 0, -25),
+    // 2026-11-27: 拾えなかった理由。ピーク −48 dBFS 以下（絶対しきい値の下）と、越えているのに 0 回（45 ms 未満）
+    pp('P-04_000100.wav', 'dog(pp:mixed)', 0, 0, 0, 0, 0, 0, -48.0), pp('P-05_000100.wav', 'dog(pp:mixed)', 0, 0, 0, 0, 0, 0, -40.2), pp('P-06_000100.wav', 'dog(pp:mixed)', 0, 0, 0, 0, 0, 0, -60),
   ];
   const md = playpantFeatureReport(rows, base);
-  assert.match(md, /^### Dog play pant の切り出し（種類ごと 6 本）/);
+  assert.match(md, /^### Dog play pant の切り出し（種類ごと 9 本）/);
   assert.match(md, /基準: ESC-50 の吠えの塊 4 個、中央値 3\.0 dB・75% 点 4\.0 dB・>4 dB 0%/);
-  // うなり: 3 本・拾えた 2・2 回以上 1（lvlDrop 2.4）。長さの中央値は拾えた 2 本の 180/200 → floor(0.5*2)=1 番目 = 200、f0 350、cent 1000。MFCC は吠えどおり → —
-  assert.match(md, /\| dog\(pp:growl\) \| 3 \| 2 \| 1 \| 2\.4 \| 2\.4–2\.4 \| 2\.4 \| 0% \| 200 \| 350 \| 1000 \| — \|/);
-  // くんくん: 2 本とも 2 回以上、5.0/5.5 → 中央値 5.5・>4 dB 100%、c3 の平均 5 → +5.0σ
-  assert.match(md, /\| dog\(pp:whine\) \| 2 \| 2 \| 2 \| 5\.5 \| 5\.0–5\.5 \| 5\.5 \| 100% \| 90 \| 470 \| 1300 \| c3\(\+5\.0σ\) \|/);
+  // うなり: 3 本・拾えた 2・2 回以上 1（lvlDrop 2.4）。長さの中央値は拾えた 2 本の 180/200 → floor(0.5*2)=1 番目 = 200、f0 350、cent 1000。MFCC は吠えどおり → —。
+  // ピーク dBFS の中央値は 3 本の −52.3/−30.5/−20.0 → −30.5。拾えなかった 1 本（P-03、−52.3）は −48 dBFS 以下
+  assert.match(md, /\| dog\(pp:growl\) \| 3 \| 2 \| 1 \| 2\.4 \| 2\.4–2\.4 \| 2\.4 \| 0% \| 200 \| 350 \| 1000 \| — \| -30\.5 \| −48 dBFS 以下 1 \|/);
+  // くんくん: 2 本とも 2 回以上、5.0/5.5 → 中央値 5.5・>4 dB 100%、c3 の平均 5 → +5.0σ。peakDb 無し → —
+  assert.match(md, /\| dog\(pp:whine\) \| 2 \| 2 \| 2 \| 5\.5 \| 5\.0–5\.5 \| 5\.5 \| 100% \| 90 \| 470 \| 1300 \| c3\(\+5\.0σ\) \| — \| — \|/);
   assert.match(md, /\| human\(pp\) \| 1 \| 1 \| 1 \| 3\.0 \|/);
-  assert.match(md, /<details><summary>切り出し 1 本ごと（6 本）<\/summary>/);
-  assert.match(md, /\| P-03_001000\.wav \| dog\(pp:growl\) \| 1\.50 \| 0 \| — \| — \| — \| — \|/);
+  assert.match(md, /\| dog\(pp:mixed\) \| 3 \| 0 \| 0 \| — \| — \| — \| — \| — \| — \| — \| — \| -48\.0 \| −48 dBFS 以下 2・45 ms 未満 1 \|/);
+  assert.match(md, /<details><summary>切り出し 1 本ごと（9 本）<\/summary>/);
+  assert.match(md, /\| P-03_001000\.wav \| dog\(pp:growl\) \| 1\.50 \| 0 \| — \| — \| — \| — \| -52\.3 \| −48 dBFS 以下 \|/);
+  assert.match(md, /\| P-05_000100\.wav \| dog\(pp:mixed\) \| 1\.50 \| 0 \| — \| — \| — \| — \| -40\.2 \| 45 ms 未満 \|/);
+  assert.match(md, /\| P-01_000250\.wav \| dog\(pp:growl\) \| 1\.50 \| 3 \| 2\.4 \| 180 \| 307 \| 900 \| -20\.0 \|  \|/, '拾えた本は理由の欄が空');
+  assert.match(md, /「拾えなかった理由」: .*0\.004 ≒ −48 dBFS/);
   assert.equal(playpantFeatureReport([], base), '');
   // 基準（ESC-50）が無くても表は出る（MFCC の列は —、lvlDrop の基準は — ）
   assert.match(playpantFeatureReport(rows, []), /吠えの塊 0 個、中央値 — dB/);

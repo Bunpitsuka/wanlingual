@@ -41,7 +41,9 @@ const analyze = d => {
     const ca = analyzeSamples(x.subarray(Math.round(c.start * sr), Math.round(c.end * sr)), sr);
     return { start: +c.start.toFixed(3), end: +c.end.toFixed(3), n: ca.feats.n, lvlDrop: +ca.feats.lvlDrop.toFixed(2) };
   });
-  return { ...d, path: undefined, sr, seconds: +(x.length / sr).toFixed(2), events, mfcc, clusterDrops, n: f.n, lvlDrop: +f.lvlDrop.toFixed(2), dur: +f.dur.toFixed(3), gap: +f.gap.toFixed(3), f0: Math.round(f.f0), cent: Math.round(f.cent), gapCv: +f.gapCv.toFixed(2), peak: +a.peak.toFixed(3), top: r ? top(r).k : null, topP: r ? +Math.max(...Object.values(r)).toFixed(2) : null };
+  // peakDb（2026-11-27）: フレーム RMS のピークを dBFS で。本体の絶対しきい値 0.004 ≒ −48 dBFS の下なら検出器は何も拾えない（くんくん 1/7 の理由を見る列）
+  const peakDb = a.peak > 0 ? +(20 * Math.log10(a.peak)).toFixed(1) : -120;
+  return { ...d, path: undefined, sr, seconds: +(x.length / sr).toFixed(2), events, mfcc, clusterDrops, n: f.n, lvlDrop: +f.lvlDrop.toFixed(2), dur: +f.dur.toFixed(3), gap: +f.gap.toFixed(3), f0: Math.round(f.f0), cent: Math.round(f.cent), gapCv: +f.gapCv.toFixed(2), peak: +a.peak.toFixed(3), peakDb, thr: +a.thr.toFixed(4), top: r ? top(r).k : null, topP: r ? +Math.max(...Object.values(r)).toFixed(2) : null };
 };
 const rows = data.map(analyze);
 const ppRows = ppData.map(analyze);

@@ -300,6 +300,7 @@ export function lvlDropReport(rows, { evenMax = 1.5, unevenMin = 5.5, midDb = 4 
  * base: ESC-50・CC0 の行（基準）。lvlDrop の基準は ESC-50 の吠えの塊（clusterDrops、n ≥ 2）、MFCC の基準は mfccReport と同じ ESC-50 吠え 40 本。
  * 種類ごとに: 本数、本体が声を拾えた本（n > 0）、2 回以上鳴いた本、lvlDrop（n ≥ 2 の本だけ。中央値・25–75%・>midDb の割合）、
  * 1 回の長さ・f0・cent の中央値、MFCC で吠えから離れた係数（種類の平均で）。CC0 は 1 種類 1 本だったが、ここは 1 種類 20 本・最大 17 頭なので分布で見られる。
+ * 2026-11-27: ピーク dBFS の中央値（rows[].peakDb。無ければ —）と「拾えなかった理由」（n=0 の本: ピークが −48 dBFS 以下＝絶対しきい値の下／45 ms 未満）の列、1 本ごとの表にも同じ 2 列。
  * pp が空なら空文字。
  */
 export function playpantFeatureReport(pp, base, { zMin = 2, nCoef = 12, midDb = 4 } = {}) {
@@ -314,7 +315,19 @@ export function playpantFeatureReport(pp, base, { zMin = 2, nCoef = 12, midDb = 
   const types = [...new Set(pp.map(r => r.category))];
   let md = `### Dog play pant の切り出し（種類ごと ${pp.length} 本）を本体の検出器に通した結果（#13b・#13 の材料。検証専用、製品には入れない）\n\n`;
   md += `2 層目の注釈の時刻で切り出した塊（本体 mic.js と同じ区切り・余白）ごとに、本体と同じ \`analyzeSamples()\` を掛けた。lvlDrop は 2 回以上鳴いた本だけ（基準: ESC-50 の吠えの塊 ${refDrops.length} 個、中央値 ${f1(q(refDrops, 0.5))} dB・75% 点 ${f1(q(refDrops, 0.75))} dB・>${midDb} dB ${share(refDrops, v => v > midDb)}）。MFCC は 16 kHz に落としてから（基準: ESC-50 吠え ${mfccDogs.length} 本の 平均 ± σ、|z| ≥ ${zMin} を「離れた係数」）。\n\n`;
-  md += `| 種類 | 本 | 声を拾えた | 2 回以上 | lvlDrop 中央値 dB | 25–75% | 最大 | >${midDb} dB | 1 回の長さ ms | f0 Hz | cent Hz | 吠えから離れた MFCC 係数 |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n`;
+  md += `| 種類 | 本 | 声を拾えた | 2 回以上 | lvlDrop 中央値 dB | 25–75% | 最大 | >${midDb} dB | 1 回の長さ ms | f0 Hz | cent Hz | 吠えから離れた MFCC 係数 | ピーク dBFS 中央値 | 拾えなかった理由 |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n`;
+  // 2026-11-27: 拾えなかった本（n=0）の理由。本体 features.js は rms > thr（thr ≥ 絶対しきい値 0.004 ≒ −48 dBFS）のフレームを声にし、45 ms 未満は捨てる。
+  // ピークが −48 dBFS 以下なら 1 フレームも越えられない（遠い・小さい声）。ピークが越えているのに 0 回なら、越えた区間が 45 ms 未満（短い）
+  const absDb = Math.round(20 * Math.log10(0.004)); // features.js の opts.thrAbs 既定 0.004 → −48
+  const dbs = `${absDb < 0 ? '−' : ''}${Math.abs(absDb)} dBFS`;
+  const hasPeak = r => typeof r.peakDb === 'number';
+  const whyMissed = r => !hasPeak(r) ? '不明' : r.peakDb <= absDb ? `${dbs} 以下` : '45 ms 未満';
+  const missedNote = list => {
+    const miss = list.filter(r => r.n === 0);
+    if (!miss.length) return '—';
+    const c = {}; for (const r of miss) { const k = whyMissed(r); c[k] = (c[k] || 0) + 1; }
+    return Object.entries(c).map(([k, v]) => `${k} ${v}`).join('・');
+  };
   const result = {};
   for (const cat of types) {
     const list = pp.filter(r => r.category === cat), det = list.filter(r => r.n > 0), multi = list.filter(r => r.n >= 2);
@@ -322,13 +335,15 @@ export function playpantFeatureReport(pp, base, { zMin = 2, nCoef = 12, midDb = 
     const m = list.filter(r => hasMfcc(r, nCoef));
     const far = ref && m.length ? farCoefs([0, ...mfccStats(m, nCoef).map(s => s.mu)], ref, { zMin }) : '—';
     const f0s = det.map(r => r.f0).filter(v => v > 0);
-    result[cat] = { n: list.length, detected: det.length, multi: multi.length, lvlDropMedian: q(d, 0.5), far };
-    md += `| ${cat} | ${list.length} | ${det.length} | ${multi.length} | ${f1(q(d, 0.5))} | ${d.length ? `${f1(q(d, 0.25))}–${f1(q(d, 0.75))}` : '—'} | ${d.length ? f1(Math.max(...d)) : '—'} | ${share(d, v => v > midDb)} | ${fi(q(det.map(r => r.dur * 1000), 0.5))} | ${fi(q(f0s, 0.5))} | ${fi(q(det.map(r => r.cent), 0.5))} | ${far} |\n`;
+    const peaks = list.filter(hasPeak).map(r => r.peakDb);
+    result[cat] = { n: list.length, detected: det.length, multi: multi.length, lvlDropMedian: q(d, 0.5), far, peakDbMedian: q(peaks, 0.5), missed: missedNote(list) };
+    md += `| ${cat} | ${list.length} | ${det.length} | ${multi.length} | ${f1(q(d, 0.5))} | ${d.length ? `${f1(q(d, 0.25))}–${f1(q(d, 0.75))}` : '—'} | ${d.length ? f1(Math.max(...d)) : '—'} | ${share(d, v => v > midDb)} | ${fi(q(det.map(r => r.dur * 1000), 0.5))} | ${fi(q(f0s, 0.5))} | ${fi(q(det.map(r => r.cent), 0.5))} | ${far} | ${f1(q(peaks, 0.5))} | ${missedNote(list)} |\n`;
   }
   md += `\n- 読み方: くんくん・うなり の lvlDrop 中央値が吠えの 75% 点（${f1(q(refDrops, 0.75))} dB）より上なら、CC0 1 本ずつの結果（くんくん 5.0〜5.5 dB、うなり 2.4 dB）が複数頭でも成り立つ。人の声（human）は犬以外の誤検出の材料（本体は音量だけなので拾うのが普通。YAMNet で落とす分）。\n`;
-  md += `- 注意: 遊びの場面の録音（犬と人が一緒にいる）なので、塊の余白に人の声や物音が入ることがある。混ざった注釈の塊は捨ててある。YAMNet にはまだ通していない（本数で時間が伸びるので次）。\n`;
-  const perClip = pp.map(r => `| ${r.file} | ${r.category} | ${(r.seconds ?? 0).toFixed(2)} | ${r.n} | ${r.n >= 2 ? f1(r.lvlDrop) : '—'} | ${r.n ? Math.round(r.dur * 1000) : '—'} | ${r.f0 || '—'} | ${r.cent || '—'} |`).join('\n');
-  md += `\n<details><summary>切り出し 1 本ごと（${pp.length} 本）</summary>\n\n| ファイル | 種類 | 秒 | 回数 | lvlDrop | 長さ ms | f0 | cent |\n|---|---|---|---|---|---|---|---|\n${perClip}\n\n</details>\n`;
+  md += `- 「拾えなかった理由」: 本体の検出器は フレーム RMS > しきい値（絶対しきい値 0.004 ≒ ${dbs} が下限）を声にし、45 ms 未満は捨てる。ピークが ${dbs} 以下の本は 1 フレームも越えられない（遠い・小さい声＝本体でも検出に掛からない）。越えているのに 0 回なら、越えた区間が 45 ms 未満。\n`;
+  md += `- 注意: 遊びの場面の録音（犬と人が一緒にいる）なので、塊の余白に人の声や物音が入ることがある。違う種類が混ざった塊は種類の行からは外し、**dog(pp:mixed)** の行（本体 mic.js がそのまま 1 塊にする形）で別に見る。YAMNet にはまだ通していない（本数で時間が伸びるので次）。\n`;
+  const perClip = pp.map(r => `| ${r.file} | ${r.category} | ${(r.seconds ?? 0).toFixed(2)} | ${r.n} | ${r.n >= 2 ? f1(r.lvlDrop) : '—'} | ${r.n ? Math.round(r.dur * 1000) : '—'} | ${r.f0 || '—'} | ${r.cent || '—'} | ${hasPeak(r) ? f1(r.peakDb) : '—'} | ${r.n === 0 ? whyMissed(r) : ''} |`).join('\n');
+  md += `\n<details><summary>切り出し 1 本ごと（${pp.length} 本）</summary>\n\n| ファイル | 種類 | 秒 | 回数 | lvlDrop | 長さ ms | f0 | cent | ピーク dBFS | 拾えなかった理由 |\n|---|---|---|---|---|---|---|---|---|---|\n${perClip}\n\n</details>\n`;
   return md + '\n';
 }
 

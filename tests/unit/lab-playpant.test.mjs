@@ -216,18 +216,24 @@ test('pickClips / clipPlanReport（2026-11-26）: 2 層目の calls を 0.7 秒�
   assert.deepEqual(p.counts['うなり'], { all: 3, mixed: 0, multi: 2, picked: 2, stems: 2 });
   assert.deepEqual(p.counts['吠え／キャン'], { all: 1, mixed: 1, multi: 0, picked: 1, stems: 1 }, '8.3 の吠えは くんくん と混ざって捨てた');
   assert.deepEqual(p.counts['くんくん'], { all: 0, mixed: 1, multi: 0, picked: 0, stems: 0 });
+  // 2026-11-27: 混ざった塊（くんくん 8.0 + 吠え 8.3）は捨てずに '混ざり'（mixed）として取る。mix に中身、mixes に組み合わせの数
+  assert.deepEqual(p.clips.filter(c => c.type === '混ざり').map(c => [c.dir, c.stem, c.begin, c.end, c.calls, c.mix]), [['mixed', 'P-01-S-P_1', 7.75, 8.62, 2, 'くんくん+吠え／キャン']]);
+  assert.deepEqual(p.counts['混ざり'], { all: 1, mixed: 0, multi: 1, picked: 1, stems: 1 });
+  assert.deepEqual(p.mixes, { 'くんくん+吠え／キャン': 1 }, '息の塊が うめき と重なったもの（50 秒台）は混ざりに入れない');
   assert.deepEqual(p.clips.filter(c => c.type === '人の声').map(c => [c.dir, c.begin, c.end, c.calls]), [['human', 9.75, 10.92, 1]], 'noise の tier でも人の声は拾う');
   assert.ok(!p.clips.some(c => c.begin >= 12 && c.begin < 20), 'traffic は拾わない');
   const pant = p.clips.filter(c => c.type === '息');
   assert.deepEqual(p.counts['息'], { all: 3, mixed: 1, multi: 2, picked: 2, stems: 1 }, '6 秒を超えるところで塊を割る（2 塊）＋ 7.6 の 1 回。50 秒台は うめき と重なって捨てる');
   assert.deepEqual(pant.map(c => c.calls), [12, 8], '2 回以上の塊を先に取るので 7.6 の 1 回は perType 2 に入らない');
   assert.deepEqual(p.counts['うめき'], { all: 1, mixed: 0, multi: 0, picked: 1, stems: 1 }, 'うめき の側は息と重なっても捨てない');
-  assert.ok(p.clips.every(c => c.dir === CLIP_TYPES[c.type]));
+  assert.ok(p.clips.every(c => c.dir === (CLIP_TYPES[c.type] ?? 'mixed')));
   const md = clipPlanReport(p, { perType: 2 });
   assert.match(md, /^### 切り出す塊（SecondLayer の注釈/);
   assert.match(md, /\| うなり \| growl \| 3 \| 0 \| 2 \| 2 \| 2 \|/);
   assert.match(md, /\| くんくん \| whine \| 0 \| 1 \| 0 \| 0 \| 0 \|/);
-  assert.match(md, /- 合計 \d+ 本・[\d.]+ 秒（2 回以上鳴いた塊 4 本）/);
+  assert.match(md, /\| 混ざり \| mixed \| 1 \| — \| 1 \| 1 \| 1 \|/);
+  assert.match(md, /- 合計 \d+ 本・[\d.]+ 秒（2 回以上鳴いた塊 5 本）/);
+  assert.match(md, /- 混ざりの内訳（.*）: くんくん\+吠え／キャン 1\n/);
   // 2 層目が無ければ全部の表（1 層目）から
   const p1 = pickClips(tables.slice(0, 1));
   assert.equal(p1.layer, '（全部の表）');
