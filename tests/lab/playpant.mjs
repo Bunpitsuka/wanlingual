@@ -336,6 +336,25 @@ export function clipPlanReport(picked, { perType = 20 } = {}) {
   return md;
 }
 
+/** 切り出し 1 本のファイル名（playpant-check.mjs が置く名前。幹_開始ms 7 桁）: { stem: 'P-01-S-P_1', begin: 7.75 } → `P-01-S-P_1_0007750.wav` */
+export function clipFileName(c) {
+  return `${c.stem}_${String(Math.round(c.begin * 1000)).padStart(7, '0')}.wav`;
+}
+/**
+ * 切り出しの索引（2026-11-28）。pickClips の clips → clips/clips.json に置く配列 [{ file: 'mixed/P-01-S-P_1_0007750.wav', type, dir, stem, begin, end, calls, mix? }]。
+ * 11-27 の run で「混ざり の 1 本ごとの表に中身（うなり+吠え など）が出ない」（ファイル名に入れていなかった）ので、ファイル名は変えずに索引で結ぶ。
+ * listData（fetch-data.mjs）がこれを読んで行に calls・mix を添え、playpantFeatureReport の 1 本ごとの表に出す。
+ */
+export function clipIndex(clips) {
+  return clips.map(c => ({ file: `${c.dir}/${clipFileName(c)}`, type: c.type, dir: c.dir, stem: c.stem, begin: c.begin, end: c.end, calls: c.calls, ...(c.mix ? { mix: c.mix } : {}) }));
+}
+/** clips.json（clipIndex の配列か { clips: [...] }）→ Map('dir/file' → 項目)。壊れていれば空の Map */
+export function clipIndexMap(json) {
+  let d; try { d = typeof json === 'string' ? JSON.parse(json) : json; } catch { return new Map(); }
+  const list = Array.isArray(d) ? d : Array.isArray(d?.clips) ? d.clips : [];
+  return new Map(list.filter(c => c && typeof c.file === 'string').map(c => [c.file, c]));
+}
+
 /** `P-01-S-P_1.Table.1.selections.txt` / `P-04-S-P_1.Table` / `P-01-S-P_1.wav` → `P-01-S-P_1`（Readme の「File naming conventions」。注釈と音声を結ぶ幹） */
 export function stemOf(name) {
   const base = String(name ?? '').split('/').pop();

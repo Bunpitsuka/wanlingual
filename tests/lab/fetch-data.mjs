@@ -16,7 +16,7 @@ import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { toWavWithChromium } from './decode.mjs';
-import { PLAYPANT, playpantUrl, ZENODO_HEADERS } from './playpant.mjs';
+import { PLAYPANT, playpantUrl, ZENODO_HEADERS, clipIndexMap } from './playpant.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const DATA = path.join(here, 'data');
@@ -74,6 +74,7 @@ export function pickEsc50(csvText) {
  * 取得済みデータの一覧 [{file, path, category, source}]。無いものは含めない。
  * playpant: true なら Dog play pant の切り出し（playpant-check.mjs が data/playpant/clips/<種類>/ に置く。2026-11-26）も足す
  * （source 'PlayPant'、category は犬の声なら `dog(pp:growl)` 等、人の声は `human(pp)`、ppType にフォルダ名）。
+ * 2026-11-28: clips/clips.json（playpant-check.mjs の索引）があれば、行に ppCalls（注釈の回数）・ppMix（混ざりの中身「うなり+吠え／キャン」）を添える（無ければ付かない）。
  * 既定は false: yamnet-check.mjs（本数で時間が伸びる）と highlights.mjs（ESC-50・CC0 の集計）はいままでどおり。
  */
 export function listData({ playpant = false } = {}) {
@@ -91,10 +92,17 @@ export function listData({ playpant = false } = {}) {
   }
   const clips = path.join(DATA, 'playpant/clips');
   if (playpant && fs.existsSync(clips)) {
+    const idxFile = path.join(clips, 'clips.json');
+    const idx = fs.existsSync(idxFile) ? clipIndexMap(fs.readFileSync(idxFile, 'utf8')) : new Map();
     for (const t of fs.readdirSync(clips).sort()) {
       const d = path.join(clips, t);
       if (!fs.statSync(d).isDirectory()) continue;
-      for (const f of fs.readdirSync(d).filter(f => /\.wav$/i.test(f)).sort()) out.push({ file: f, path: path.join(d, f), category: t === 'human' ? 'human(pp)' : `dog(pp:${t})`, source: 'PlayPant', ppType: t });
+      for (const f of fs.readdirSync(d).filter(f => /\.wav$/i.test(f)).sort()) {
+        const row = { file: f, path: path.join(d, f), category: t === 'human' ? 'human(pp)' : `dog(pp:${t})`, source: 'PlayPant', ppType: t };
+        const c = idx.get(`${t}/${f}`);
+        if (c) { row.ppCalls = c.calls; if (c.mix) row.ppMix = c.mix; }
+        out.push(row);
+      }
     }
   }
   return out;

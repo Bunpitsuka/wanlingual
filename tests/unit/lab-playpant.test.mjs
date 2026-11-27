@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PLAYPANT, playpantUrl, ZENODO_HEADERS, callJa, decodeLabel, CODE_LABEL, unzip, zipIndex, zipExtract, isJunk, pickRavenFiles, pickNoteFiles, parseRavenTable, callTypeReport, metadataNote, htmlToText, recordNote, stemOf, audioListReport, pickClips, clipPlanReport, CLIP_TYPES } from '../lab/playpant.mjs';
+import { PLAYPANT, playpantUrl, ZENODO_HEADERS, callJa, decodeLabel, CODE_LABEL, unzip, zipIndex, zipExtract, isJunk, pickRavenFiles, pickNoteFiles, parseRavenTable, callTypeReport, metadataNote, htmlToText, recordNote, stemOf, audioListReport, pickClips, clipPlanReport, CLIP_TYPES, clipFileName, clipIndex, clipIndexMap } from '../lab/playpant.mjs';
 import { wavHeader, readWav } from '../lab/wav.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -239,4 +239,34 @@ test('pickClips / clipPlanReport（2026-11-26）: 2 層目の calls を 0.7 秒�
   assert.equal(p1.layer, '（全部の表）');
   assert.deepEqual(p1.clips.map(c => [c.type, c.begin]), [['うなり', 0.25]]);
   assert.deepEqual(pickClips([]).clips, []);
+});
+
+test('clipFileName / clipIndex / clipIndexMap（2026-11-28）: 切り出しの索引（dir/ファイル名 → 種類・中身・注釈の回数）。ファイル名は 11-26 からの形のまま。壊れた JSON は空', () => {
+  const clips = [
+    { type: '混ざり', dir: 'mixed', stem: 'P-01-S-P_1', begin: 7.75, end: 8.62, calls: 2, mix: 'くんくん+吠え／キャン' },
+    { type: 'うなり', dir: 'growl', stem: 'P-02-S-P_1', begin: 0, end: 1.2, calls: 3 },
+  ];
+  assert.equal(clipFileName(clips[0]), 'P-01-S-P_1_0007750.wav');
+  assert.equal(clipFileName(clips[1]), 'P-02-S-P_1_0000000.wav');
+  const idx = clipIndex(clips);
+  assert.deepEqual(idx, [
+    { file: 'mixed/P-01-S-P_1_0007750.wav', type: '混ざり', dir: 'mixed', stem: 'P-01-S-P_1', begin: 7.75, end: 8.62, calls: 2, mix: 'くんくん+吠え／キャン' },
+    { file: 'growl/P-02-S-P_1_0000000.wav', type: 'うなり', dir: 'growl', stem: 'P-02-S-P_1', begin: 0, end: 1.2, calls: 3 },
+  ], '混ざり以外には mix を付けない');
+  // JSON 文字列（{ clips: [...] } でも配列でも）→ Map
+  const m = clipIndexMap(JSON.stringify({ at: 'x', clips: idx }));
+  assert.equal(m.size, 2);
+  assert.equal(m.get('mixed/P-01-S-P_1_0007750.wav').mix, 'くんくん+吠え／キャン');
+  assert.equal(m.get('growl/P-02-S-P_1_0000000.wav').calls, 3);
+  assert.equal(clipIndexMap(idx).size, 2);
+  assert.equal(clipIndexMap('{broken').size, 0);
+  assert.equal(clipIndexMap({ clips: [{ nofile: 1 }] }).size, 0);
+  // pickClips の結果からそのまま作れる（fixtures の合成の注釈）
+  const entries = unzip(zipBuf).filter(e => !isJunk(e.name));
+  const tables = pickRavenFiles(entries).map(e => ({ name: e.name, ...parseRavenTable(e.data.toString('utf8')) }));
+  const p = pickClips(tables);
+  const all = clipIndex(p.clips);
+  assert.equal(all.length, p.clips.length);
+  assert.ok(all.every(c => c.file === `${c.dir}/${c.stem}_${String(Math.round(c.begin * 1000)).padStart(7, '0')}.wav`));
+  assert.ok(all.filter(c => c.type === '混ざり').every(c => c.mix.includes('+')) && all.filter(c => c.type !== '混ざり').every(c => !('mix' in c)));
 });

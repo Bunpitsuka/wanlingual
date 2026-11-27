@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DATA } from './fetch-data.mjs';
-import { PLAYPANT, unzip, zipIndex, zipExtract, isJunk, pickRavenFiles, pickNoteFiles, parseRavenTable, callTypeReport, metadataNote, recordNote, audioListReport, pickClips, clipPlanReport, stemOf } from './playpant.mjs';
+import { PLAYPANT, unzip, zipIndex, zipExtract, isJunk, pickRavenFiles, pickNoteFiles, parseRavenTable, callTypeReport, metadataNote, recordNote, audioListReport, pickClips, clipPlanReport, stemOf, clipFileName, clipIndex } from './playpant.mjs';
 import { wavHeader, readWav } from './wav.mjs';
 import { writeWav } from './decode.mjs';
 
@@ -93,10 +93,16 @@ function clipsWritten(zbuf, wavEntries, tables) {
       if (c.end * sr > x.length) clipped++;
       const d = path.join(out, c.dir);
       fs.mkdirSync(d, { recursive: true });
-      writeWav(path.join(d, `${c.stem}_${String(Math.round(c.begin * 1000)).padStart(7, '0')}.wav`), x.subarray(a, b), sr);
+      writeWav(path.join(d, clipFileName(c)), x.subarray(a, b), sr);
       n++;
     }
   }
+  // 2026-11-28: 索引（種類・混ざりの中身・注釈の回数・時刻）。features-check.mjs → listData が読んで 1 本ごとの表に中身を出す。音声ではないので out/ にも写す
+  const index = { at: new Date().toISOString(), license: PLAYPANT.license, layer: picked.layer, clips: clipIndex(picked.clips) };
+  fs.mkdirSync(out, { recursive: true });
+  fs.writeFileSync(path.join(out, 'clips.json'), JSON.stringify(index, null, 1));
+  fs.mkdirSync(path.join(here, 'out'), { recursive: true });
+  fs.writeFileSync(path.join(here, 'out/playpant-clips.json'), JSON.stringify(index, null, 1));
   const noWav = [...byStem.values()].reduce((p, v) => p + v.length, 0);
   s += `- 切り出した WAV: **${n}/${picked.clips.length} 本**（${Math.round((Date.now() - t0) / 1000)} 秒）${missing ? `、読めない・短すぎて飛ばした ${missing}` : ''}${noWav ? `、音声が無い幹の分 ${noWav}` : ''}${clipped ? `、ファイル末尾で切れた ${clipped}` : ''}。置き場 \`tests/lab/data/playpant/clips/<種類>/\`（gitignore。NC 扱いなのでリポジトリには入れない）\n`;
   return s;

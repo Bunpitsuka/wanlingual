@@ -301,6 +301,8 @@ export function lvlDropReport(rows, { evenMax = 1.5, unevenMin = 5.5, midDb = 4 
  * 種類ごとに: 本数、本体が声を拾えた本（n > 0）、2 回以上鳴いた本、lvlDrop（n ≥ 2 の本だけ。中央値・25–75%・>midDb の割合）、
  * 1 回の長さ・f0・cent の中央値、MFCC で吠えから離れた係数（種類の平均で）。CC0 は 1 種類 1 本だったが、ここは 1 種類 20 本・最大 17 頭なので分布で見られる。
  * 2026-11-27: ピーク dBFS の中央値（rows[].peakDb。無ければ —）と「拾えなかった理由」（n=0 の本: ピークが −48 dBFS 以下＝絶対しきい値の下／45 ms 未満）の列、1 本ごとの表にも同じ 2 列。
+ * 2026-11-28: 1 本ごとの表に「注釈の回数」（rows[].ppCalls）と「中身」（rows[].ppMix、混ざり の「うなり+吠え／キャン」）の列。混ざり は中身ごとの行（本数・拾えた・lvlDrop 中央値・ピーク中央値）も出す。
+ * どちらも clips.json（playpant-check.mjs の索引）が無ければ —。
  * pp が空なら空文字。
  */
 export function playpantFeatureReport(pp, base, { zMin = 2, nCoef = 12, midDb = 4 } = {}) {
@@ -342,8 +344,19 @@ export function playpantFeatureReport(pp, base, { zMin = 2, nCoef = 12, midDb = 
   md += `\n- 読み方: くんくん・うなり の lvlDrop 中央値が吠えの 75% 点（${f1(q(refDrops, 0.75))} dB）より上なら、CC0 1 本ずつの結果（くんくん 5.0〜5.5 dB、うなり 2.4 dB）が複数頭でも成り立つ。人の声（human）は犬以外の誤検出の材料（本体は音量だけなので拾うのが普通。YAMNet で落とす分）。\n`;
   md += `- 「拾えなかった理由」: 本体の検出器は フレーム RMS > しきい値（絶対しきい値 0.004 ≒ ${dbs} が下限）を声にし、45 ms 未満は捨てる。ピークが ${dbs} 以下の本は 1 フレームも越えられない（遠い・小さい声＝本体でも検出に掛からない）。越えているのに 0 回なら、越えた区間が 45 ms 未満。\n`;
   md += `- 注意: 遊びの場面の録音（犬と人が一緒にいる）なので、塊の余白に人の声や物音が入ることがある。違う種類が混ざった塊は種類の行からは外し、**dog(pp:mixed)** の行（本体 mic.js がそのまま 1 塊にする形）で別に見る。YAMNet にはまだ通していない（本数で時間が伸びるので次）。\n`;
-  const perClip = pp.map(r => `| ${r.file} | ${r.category} | ${(r.seconds ?? 0).toFixed(2)} | ${r.n} | ${r.n >= 2 ? f1(r.lvlDrop) : '—'} | ${r.n ? Math.round(r.dur * 1000) : '—'} | ${r.f0 || '—'} | ${r.cent || '—'} | ${hasPeak(r) ? f1(r.peakDb) : '—'} | ${r.n === 0 ? whyMissed(r) : ''} |`).join('\n');
-  md += `\n<details><summary>切り出し 1 本ごと（${pp.length} 本）</summary>\n\n| ファイル | 種類 | 秒 | 回数 | lvlDrop | 長さ ms | f0 | cent | ピーク dBFS | 拾えなかった理由 |\n|---|---|---|---|---|---|---|---|---|---|\n${perClip}\n\n</details>\n`;
+  // 2026-11-28: 混ざり の中身ごと（clips.json の索引で ppMix が付いた本だけ。本数の多い順）。「うなり+吠え」と「うなり+人の声」で lvlDrop・音量が違うかを見る行
+  const mixed = pp.filter(r => typeof r.ppMix === 'string' && r.ppMix);
+  if (mixed.length) {
+    const byMix = new Map();
+    for (const r of mixed) { if (!byMix.has(r.ppMix)) byMix.set(r.ppMix, []); byMix.get(r.ppMix).push(r); }
+    const line = [...byMix.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0])).map(([mix, list]) => {
+      const d = list.filter(r => r.n >= 2).map(r => r.lvlDrop).filter(Number.isFinite), peaks = list.filter(hasPeak).map(r => r.peakDb);
+      return `${mix} ${list.length} 本（拾えた ${list.filter(r => r.n > 0).length}、lvlDrop 中央値 ${f1(q(d, 0.5))} dB、ピーク中央値 ${f1(q(peaks, 0.5))} dBFS）`;
+    }).join('・');
+    md += `- 混ざり ${mixed.length} 本の中身ごと（注釈の種類の組み合わせ。lvlDrop は 2 回以上鳴いた本だけ）: ${line}\n`;
+  }
+  const perClip = pp.map(r => `| ${r.file} | ${r.category} | ${r.ppMix ?? '—'} | ${Number.isFinite(r.ppCalls) ? r.ppCalls : '—'} | ${(r.seconds ?? 0).toFixed(2)} | ${r.n} | ${r.n >= 2 ? f1(r.lvlDrop) : '—'} | ${r.n ? Math.round(r.dur * 1000) : '—'} | ${r.f0 || '—'} | ${r.cent || '—'} | ${hasPeak(r) ? f1(r.peakDb) : '—'} | ${r.n === 0 ? whyMissed(r) : ''} |`).join('\n');
+  md += `\n<details><summary>切り出し 1 本ごと（${pp.length} 本）</summary>\n\n| ファイル | 種類 | 中身（混ざり） | 注釈の回数 | 秒 | 回数 | lvlDrop | 長さ ms | f0 | cent | ピーク dBFS | 拾えなかった理由 |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n${perClip}\n\n</details>\n`;
   return md + '\n';
 }
 
