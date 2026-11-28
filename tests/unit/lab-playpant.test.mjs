@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PLAYPANT, playpantUrl, ZENODO_HEADERS, callJa, decodeLabel, CODE_LABEL, unzip, zipIndex, zipExtract, isJunk, pickRavenFiles, pickNoteFiles, parseRavenTable, callTypeReport, metadataNote, htmlToText, recordNote, stemOf, audioListReport, pickClips, clipPlanReport, CLIP_TYPES, clipFileName, clipIndex, clipIndexMap } from '../lab/playpant.mjs';
+import { PLAYPANT, playpantUrl, ZENODO_HEADERS, callJa, decodeLabel, CODE_LABEL, unzip, zipIndex, zipExtract, isJunk, pickRavenFiles, pickNoteFiles, parseRavenTable, callTypeReport, metadataNote, htmlToText, recordNote, stemOf, audioListReport, pickClips, clipPlanReport, CLIP_TYPES, clipFileName, clipIndex, clipIndexMap, apportion } from '../lab/playpant.mjs';
 import { wavHeader, readWav } from '../lab/wav.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -218,8 +218,9 @@ test('pickClips / clipPlanReport（2026-11-26）: 2 層目の calls を 0.7 秒�
   assert.deepEqual(p.counts['くんくん'], { all: 0, mixed: 1, multi: 0, picked: 0, stems: 0 });
   // 2026-11-27: 混ざった塊（くんくん 8.0 + 吠え 8.3）は捨てずに '混ざり'（mixed）として取る。mix に中身、mixes に組み合わせの数
   assert.deepEqual(p.clips.filter(c => c.type === '混ざり').map(c => [c.dir, c.stem, c.begin, c.end, c.calls, c.mix]), [['mixed', 'P-01-S-P_1', 7.75, 8.62, 2, 'くんくん+吠え／キャン']]);
-  assert.deepEqual(p.counts['混ざり'], { all: 1, mixed: 0, multi: 1, picked: 1, stems: 1 });
+  assert.deepEqual(p.counts['混ざり'], { all: 1, mixed: 0, multi: 1, picked: 1, stems: 1, dog: 1, human: 0 });
   assert.deepEqual(p.mixes, { 'くんくん+吠え／キャン': 1 }, '息の塊が うめき と重なったもの（50 秒台）は混ざりに入れない');
+  assert.deepEqual(p.mixPlan, { dog: { slots: 2, all: 1, quota: { 'くんくん+吠え／キャン': 1 } }, human: { slots: 5, all: 0, quota: {} } }, '2026-11-29: 混ざり の配分（犬の声同士 perType 本・人の声入り 5 本の別枠）');
   assert.deepEqual(p.clips.filter(c => c.type === '人の声').map(c => [c.dir, c.begin, c.end, c.calls]), [['human', 9.75, 10.92, 1]], 'noise の tier でも人の声は拾う');
   assert.ok(!p.clips.some(c => c.begin >= 12 && c.begin < 20), 'traffic は拾わない');
   const pant = p.clips.filter(c => c.type === '息');
@@ -234,11 +235,63 @@ test('pickClips / clipPlanReport（2026-11-26）: 2 層目の calls を 0.7 秒�
   assert.match(md, /\| 混ざり \| mixed \| 1 \| — \| 1 \| 1 \| 1 \|/);
   assert.match(md, /- 合計 \d+ 本・[\d.]+ 秒（2 回以上鳴いた塊 5 本）/);
   assert.match(md, /- 混ざりの内訳（.*）: くんくん\+吠え／キャン 1\n/);
+  assert.match(md, /- 混ざりの選び方: 犬の声同士 1 塊 → 1 本（くんくん\+吠え／キャン 1）／人の声入り 0 塊 → 0 本\n/);
+  assert.match(md, /混ざり は犬の声同士 2 本と人の声入り 5 本の別枠で/);
   // 2 層目が無ければ全部の表（1 層目）から
   const p1 = pickClips(tables.slice(0, 1));
   assert.equal(p1.layer, '（全部の表）');
   assert.deepEqual(p1.clips.map(c => [c.type, c.begin]), [['うなり', 0.25]]);
   assert.deepEqual(pickClips([]).clips, []);
+});
+
+test('apportion（2026-11-29）: 塊の数に比例して本数を配る（最大剰余法）。配る本数は塊の数以下、合計は slots、0 本は入れない', () => {
+  assert.deepEqual(apportion({ A: 15, B: 11, C: 7, D: 4, E: 4 }, 20), { A: 7, B: 5, C: 4, D: 2, E: 2 });
+  assert.deepEqual(apportion({ 'その他+人の声': 36, 'ぶつぶつ+人の声': 9, 'うなり+人の声': 5 }, 5), { 'その他+人の声': 4, 'ぶつぶつ+人の声': 1 }, '端数 .6 と .5 → 36 の方に');
+  assert.deepEqual(apportion({ A: 3, B: 1 }, 10), { A: 3, B: 1 }, 'slots が合計以上なら全部');
+  assert.deepEqual(apportion({ A: 1, B: 1, C: 1 }, 2), { A: 1, B: 1 }, '同じ端数なら名前順');
+  assert.deepEqual(apportion({ A: 2, B: 1 }, 1), { A: 1 }, '切り捨て 0・0、端数 .67 > .33 → A');
+  assert.deepEqual(apportion({}, 5), {});
+  assert.deepEqual(apportion({ A: 3 }, 0), {});
+  assert.deepEqual(Object.values(apportion({ A: 97, B: 2, C: 1 }, 20)).reduce((p, v) => p + v, 0), 20, '合計は slots');
+});
+
+test('pickClips（2026-11-29）: 混ざり は中身の組み合わせごとに取る（犬の声同士 perType 本・人の声入り mixedHuman 本の別枠、塊の数に比例、組み合わせの中ではセッション順）', () => {
+  // 4 セッション。各セッションの最初の混ざり（10 秒）は「その他+人の声」（I 10.0 + L 10.3）。11-28 までの「セッション順に 1 本ずつ」だと perType 4 で 4 本とも人の声入りになる並び。
+  // 犬の声同士: うなり+ぶつぶつ（A+H）6 塊（P-01 ×3・P-02 ×2・P-03 ×1）、うなり+吠え（A+C）2 塊（P-01 50 秒・P-04 20 秒）、ぶつぶつ+吠え（H+C）1 塊（P-02 40 秒）。
+  // 人の声入り: その他+人の声 4 塊、うなり+人の声（A+L）1 塊（P-03 30 秒）
+  const pair = (t, x, y) => [{ begin: t, end: t + 0.2, label: x, tier: 'calls' }, { begin: t + 0.4, end: t + 0.6, label: y, tier: 'calls' }];
+  const T = (stem, rows) => ({ name: `04 Annotations/SecondLayer/${stem}.Table`, rows });
+  const tables = [
+    T('P-01-S-P_1', [...pair(10, 'I', 'L'), ...pair(20, 'A', 'H'), ...pair(30, 'A', 'H'), ...pair(40, 'A', 'H'), ...pair(50, 'A', 'C')]),
+    T('P-02-S-P_1', [...pair(10, 'I', 'L'), ...pair(20, 'A', 'H'), ...pair(30, 'A', 'H'), ...pair(40, 'H', 'C')]),
+    T('P-03-S-P_1', [...pair(10, 'I', 'L'), ...pair(20, 'A', 'H'), ...pair(30, 'A', 'L')]),
+    T('P-04-S-P_1', [...pair(10, 'I', 'L'), ...pair(20, 'A', 'C')]),
+  ];
+  const p = pickClips(tables, { perType: 4, mixedHuman: 2 });
+  assert.deepEqual(p.mixes, { 'その他+人の声': 4, 'うなり+ぶつぶつ': 6, 'うなり+吠え／キャン': 2, 'ぶつぶつ+吠え／キャン': 1, 'うなり+人の声': 1 });
+  assert.deepEqual(p.counts['混ざり'], { all: 14, mixed: 0, multi: 14, picked: 6, stems: 4, dog: 9, human: 5 });
+  // 犬の声同士 9 塊に 4 本: 6/9×4=2.67・2/9×4=0.89・1/9×4=0.44 → 切り捨て 2・0・0、端数で うなり+吠え → うなり+ぶつぶつ の順に 1 ずつ
+  assert.deepEqual(p.mixPlan, {
+    dog: { slots: 4, all: 9, quota: { 'うなり+ぶつぶつ': 3, 'うなり+吠え／キャン': 1 } },
+    human: { slots: 2, all: 5, quota: { 'その他+人の声': 2 } },
+  });
+  const mixed = p.clips.filter(c => c.type === '混ざり').map(c => [c.mix, c.stem, c.begin]);
+  assert.deepEqual(mixed, [
+    ['うなり+ぶつぶつ', 'P-01-S-P_1', 19.75], ['うなり+ぶつぶつ', 'P-02-S-P_1', 19.75], ['うなり+ぶつぶつ', 'P-03-S-P_1', 19.75], // 組み合わせの中ではセッション順に 1 本ずつ
+    ['うなり+吠え／キャン', 'P-01-S-P_1', 49.75],
+    ['その他+人の声', 'P-01-S-P_1', 9.75], ['その他+人の声', 'P-02-S-P_1', 9.75],
+  ], '犬の声同士が先、人の声入りは別枠');
+  assert.ok(p.clips.filter(c => c.type === '混ざり').every(c => c.dir === 'mixed' && c.calls === 2));
+  // 純な塊は無い（全部 2 種類の塊）ので種類の行は 0。うなり・吠え の mixed（混ざって外した数）は従来どおり数える
+  assert.equal(p.counts['うなり'].picked, 0);
+  assert.equal(p.counts['うなり'].mixed, 9, 'A を含む塊 = 6 + 2 + 1（うなり+人の声）');
+  const md = clipPlanReport(p, { perType: 4 });
+  assert.match(md, /- 混ざりの選び方: 犬の声同士 9 塊 → 4 本（うなり\+ぶつぶつ 3・うなり\+吠え／キャン 1）／人の声入り 5 塊 → 2 本（その他\+人の声 2）\n/);
+  assert.match(md, /\| 混ざり \| mixed \| 14 \| — \| 14 \| 6 \| 4 \|/);
+  // 既定（perType 20・mixedHuman 5）なら全部入る（犬 9 ≤ 20、人 5 ≤ 5）
+  const p0 = pickClips(tables);
+  assert.equal(p0.counts['混ざり'].picked, 14);
+  assert.deepEqual(p0.mixPlan.human.quota, { 'その他+人の声': 4, 'うなり+人の声': 1 });
 });
 
 test('clipFileName / clipIndex / clipIndexMap（2026-11-28）: 切り出しの索引（dir/ファイル名 → 種類・中身・注釈の回数）。ファイル名は 11-26 からの形のまま。壊れた JSON は空', () => {

@@ -37,7 +37,8 @@ tests/
                      playpant.mjs / playpant-check.mjs は Dog play pant（Zenodo。Readme は CC BY-NC 4.0 → 検証専用）の注釈 zip（Raven・Praat の表、2 層）を読んで、声の種類（うなり・くんくん・吠え・息 …）ごとの件数と長さを Summary に出す。音声 zip（377 MB、PLAYPANT_AUDIO=1 のとき）があれば WAV 30 本の一覧と、
                      2 層目の時刻で切り出した塊（種類ごと 20 本まで、違う種類が混ざった塊は mixed/、data/playpant/clips/）。features-check.mjs がその塊を種類ごとの
                      lvlDrop・MFCC・ピーク dBFS・「拾えなかった理由」の表にする（ESC-50・CC0 の表とは別）。切り出しの索引 clips/clips.json
-                     （種類・混ざりの中身「うなり+吠え」・注釈の回数）も置き、1 本ごとの表と「混ざり の中身ごと」の行に出す
+                     （種類・混ざりの中身「うなり+吠え」・注釈の回数）も置き、1 本ごとの表と「混ざり の中身ごと」「犬の声同士／人の声入り」の行に出す。
+                     混ざり は犬の声同士 20 本・人の声入り 5 本の別枠で、中身の組み合わせごとに塊の数に比例して取る（apportion）
 tools/og-image.mjs   OGP 画像（app/icons/og.png）の生成。mascot.js の絵と本体の色・フォントで HTML を組み、Playwright の Chromium で撮る
 tools/screenshots.mjs  docs/screenshots/ を E2E の絵（tests/e2e/screenshots/）から更新する（`npm run test:e2e && npm run shots`）
 tools/mfcc-bench.mjs   plan #13 の下調べ: ライブラリ無しの自前 MFCC（13 次元）の手順と、1 秒あたりの処理時間の計測（`node tools/mfcc-bench.mjs`。本体には入れていない。

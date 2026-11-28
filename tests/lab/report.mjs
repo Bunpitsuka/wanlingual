@@ -354,6 +354,13 @@ export function playpantFeatureReport(pp, base, { zMin = 2, nCoef = 12, midDb = 
       return `${mix} ${list.length} 本（拾えた ${list.filter(r => r.n > 0).length}、lvlDrop 中央値 ${f1(q(d, 0.5))} dB、ピーク中央値 ${f1(q(peaks, 0.5))} dBFS）`;
     }).join('・');
     md += `- 混ざり ${mixed.length} 本の中身ごと（注釈の種類の組み合わせ。lvlDrop は 2 回以上鳴いた本だけ）: ${line}\n`;
+    // 2026-11-29: 犬の声同士／人の声入り の 2 つにまとめた行（11-28 の見立て「人の声が混ざると lvlDrop が大きくなる」を本数で確かめる）
+    const isHuman = mix => mix.split('+').includes('人の声');
+    const pool = (name, list) => {
+      const d = list.filter(r => r.n >= 2).map(r => r.lvlDrop).filter(Number.isFinite), peaks = list.filter(hasPeak).map(r => r.peakDb);
+      return `${name} ${list.length} 本（拾えた ${list.filter(r => r.n > 0).length}、2 回以上 ${d.length}、lvlDrop 中央値 ${f1(q(d, 0.5))} dB・25–75% ${d.length ? `${f1(q(d, 0.25))}–${f1(q(d, 0.75))}` : '—'}・>${midDb} dB ${share(d, v => v > midDb)}、ピーク中央値 ${f1(q(peaks, 0.5))} dBFS）`;
+    };
+    md += `- 混ざり を 2 つに分けると: ${pool('犬の声同士', mixed.filter(r => !isHuman(r.ppMix)))}／${pool('人の声入り', mixed.filter(r => isHuman(r.ppMix)))}\n`;
   }
   const perClip = pp.map(r => `| ${r.file} | ${r.category} | ${r.ppMix ?? '—'} | ${Number.isFinite(r.ppCalls) ? r.ppCalls : '—'} | ${(r.seconds ?? 0).toFixed(2)} | ${r.n} | ${r.n >= 2 ? f1(r.lvlDrop) : '—'} | ${r.n ? Math.round(r.dur * 1000) : '—'} | ${r.f0 || '—'} | ${r.cent || '—'} | ${hasPeak(r) ? f1(r.peakDb) : '—'} | ${r.n === 0 ? whyMissed(r) : ''} |`).join('\n');
   md += `\n<details><summary>切り出し 1 本ごと（${pp.length} 本）</summary>\n\n| ファイル | 種類 | 中身（混ざり） | 注釈の回数 | 秒 | 回数 | lvlDrop | 長さ ms | f0 | cent | ピーク dBFS | 拾えなかった理由 |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n${perClip}\n\n</details>\n`;

@@ -239,6 +239,27 @@ export const CLIP_TYPES = { 'うなり': 'growl', '吠え／キャン': 'bark', 
 /** 混ざった塊（2026-11-27）: 違う種類の声が 0.7 秒以内に続いた塊をそのまま 1 本に。本体 mic.js は種類を知らずに 1 塊にするので、実態に近い行になる。clips/mixed/ */
 export const MIXED_TYPE = '混ざり', MIXED_DIR = 'mixed';
 const isCallTier = t => !t || /call|sound|vocal/i.test(t);
+/** 混ざり の中身（'うなり+人の声'）に 人の声 が入るか（2026-11-29: 犬の声同士と人の声入りを別枠で取るため） */
+export const isHumanMix = mix => String(mix ?? '').split('+').includes('人の声');
+
+/**
+ * 塊の数に比例して本数を配る（最大剰余法。2026-11-29、混ざり を組み合わせごとに取るため）。
+ * counts: { 組み合わせ: 塊の数 }、slots: 配る本数。戻り値 { 組み合わせ: 本数 }（0 本は入れない。多い順、同数なら名前順）。
+ * slots が塊の合計以上なら全部。端数は大きい順に 1 本ずつ（同じなら塊の多い方、それも同じなら名前順）。配る本数は必ず塊の数以下。
+ * 例: { A: 15, B: 11, C: 7, D: 4, E: 4 }（合計 41）に 20 → 切り捨てで A 7・B 5・C 3・D 1・E 1（17）、残り 3 は端数の大きい D（.95）・E（.95）・C（.41）に → A 7・B 5・C 4・D 2・E 2。
+ */
+export function apportion(counts, slots) {
+  const entries = Object.entries(counts ?? {}).filter(([, n]) => Number.isFinite(n) && n > 0).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const total = entries.reduce((p, [, n]) => p + n, 0);
+  if (!total || !(slots > 0)) return {};
+  if (slots >= total) return Object.fromEntries(entries);
+  const out = {}, rem = [];
+  let used = 0;
+  for (const [k, n] of entries) { const exact = n * slots / total, fl = Math.floor(exact); out[k] = fl; used += fl; rem.push([k, exact - fl, n]); }
+  rem.sort((a, b) => b[1] - a[1] || b[2] - a[2] || a[0].localeCompare(b[0]));
+  for (let i = 0; used < slots && i < rem.length; i++) { out[rem[i][0]]++; used++; }
+  return Object.fromEntries(Object.entries(out).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])));
+}
 
 /**
  * 注釈 → 切り出す塊の一覧（2026-11-26、datasets.md 次の一手 4 の (b) の 2 歩目）。
@@ -249,10 +270,13 @@ const isCallTier = t => !t || /call|sound|vocal/i.test(t);
  * calls 以外の tier（2 層目の noise 等）は 人の声 だけ拾う。種類ごとに perType 本まで、幹（セッション）の名前順に 1 本ずつ回して取る（決定的で、1 セッションに偏らない）。
  * 各幹の中では 2 回以上鳴いた塊を先に（lvlDrop が測れるのは n ≥ 2）、同じなら時刻順。
  * 2026-11-27: 混ざった塊（息以外の種類が 2 つ以上）も捨てずに type '混ざり'（dir 'mixed'）として perType 本まで取る（clip.mix に「うなり+吠え／キャン」の形で中身）。
- * 本体 mic.js は種類を知らずに 1 塊にするので、こちらの方が実態に近い。counts['混ざり'] は { all: 混ざった塊の数, mixed: 0, multi, picked, stems }、mixes に組み合わせごとの数。
- * 戻り値: { layer, clips: [{ type, dir, stem, begin, end, calls, mix? }], counts: { [type]: { all, mixed, multi, picked, stems } }, mixes: { [組み合わせ]: 数 } }（begin/end は余白込みの秒、0 未満は 0）
+ * 本体 mic.js は種類を知らずに 1 塊にするので、こちらの方が実態に近い。counts['混ざり'] は { all: 混ざった塊の数, mixed: 0, multi, picked, stems, dog, human }、mixes に組み合わせごとの数。
+ * 2026-11-29: 混ざり は「セッション順に 1 本ずつ」ではなく **中身の組み合わせごと**に取る。11-28 の run で 20 本のうち 15 本が人の声入り（各セッションの最初の混ざりが「その他+人の声」になりやすい）で、
+ * 犬の声同士（うなり+吠え／キャン 4・うなり+ぶつぶつ 15 …）の lvlDrop がほとんど取れなかったため。犬の声同士の塊に perType 本、人の声入りの塊に別枠 mixedHuman 本。
+ * それぞれ組み合わせごとに塊の数に比例して本数を配り（apportion）、組み合わせの中ではセッション順に 1 本ずつ。mixPlan に { dog: { slots, all, quota }, human: {...} }。
+ * 戻り値: { layer, clips: [{ type, dir, stem, begin, end, calls, mix? }], counts: { [type]: { all, mixed, multi, picked, stems } }, mixes: { [組み合わせ]: 数 }, mixPlan }（begin/end は余白込みの秒、0 未満は 0）
  */
-export function pickClips(tables, { layer = /second/i, perType = 20, gapSec = 0.7, maxSec = 6, preRoll = 0.25, postRoll = 0.12, types = CLIP_TYPES } = {}) {
+export function pickClips(tables, { layer = /second/i, perType = 20, mixedHuman = 5, gapSec = 0.7, maxSec = 6, preRoll = 0.25, postRoll = 0.12, types = CLIP_TYPES } = {}) {
   const group = t => (t.name.includes('/') ? t.name.slice(0, t.name.lastIndexOf('/')).split('/').pop() : '（直下）');
   let use = tables.filter(t => layer && layer.test(group(t)) && t.rows.length);
   const layerName = use.length ? group(use[0]) : '（全部の表）';
@@ -311,28 +335,57 @@ export function pickClips(tables, { layer = /second/i, perType = 20, gapSec = 0.
     perStem.set(stem, pure);
   }
   const clips = [];
-  for (const ja of [...Object.keys(types), MIXED_TYPE]) {
-    const queues = [...perStem.keys()].sort().map(s => perStem.get(s).filter(c => c.type === ja));
-    counts[ja].stems = queues.filter(q => q.length).length;
-    let got = 0;
-    for (let round = 0; got < perType && queues.some(q => q.length > round); round++) {
-      for (const q of queues) { if (got >= perType) break; if (q[round]) { clips.push(q[round]); got++; } }
+  const stems = [...perStem.keys()].sort();
+  // セッション順に 1 本ずつ（round-robin）。queues は幹ごとの候補（2 回以上の塊が先）
+  const roundRobin = (queues, limit) => {
+    const out = [];
+    for (let round = 0; out.length < limit && queues.some(q => q.length > round); round++) {
+      for (const q of queues) { if (out.length >= limit) break; if (q[round]) out.push(q[round]); }
     }
-    counts[ja].picked = got;
+    return out;
+  };
+  for (const ja of Object.keys(types)) {
+    const queues = stems.map(s => perStem.get(s).filter(c => c.type === ja));
+    counts[ja].stems = queues.filter(q => q.length).length;
+    const got = roundRobin(queues, perType);
+    clips.push(...got);
+    counts[ja].picked = got.length;
   }
-  return { layer: layerName, clips, counts, mixes };
+  // 混ざり（2026-11-29）: 犬の声同士（perType 本）と人の声入り（mixedHuman 本）を別枠にし、組み合わせごとに塊の数に比例して配る。組み合わせの中ではセッション順に 1 本ずつ
+  const mixPlan = { dog: { slots: perType, all: 0, quota: {} }, human: { slots: mixedHuman, all: 0, quota: {} } };
+  const poolMixes = { dog: {}, human: {} };
+  for (const [mix, n] of Object.entries(mixes)) { const pool = isHumanMix(mix) ? 'human' : 'dog'; poolMixes[pool][mix] = n; mixPlan[pool].all += n; }
+  counts[MIXED_TYPE].stems = stems.filter(s => perStem.get(s).some(c => c.type === MIXED_TYPE)).length;
+  counts[MIXED_TYPE].dog = mixPlan.dog.all;
+  counts[MIXED_TYPE].human = mixPlan.human.all;
+  let picked = 0;
+  for (const pool of ['dog', 'human']) {
+    mixPlan[pool].quota = apportion(poolMixes[pool], mixPlan[pool].slots);
+    for (const [mix, k] of Object.entries(mixPlan[pool].quota)) {
+      const got = roundRobin(stems.map(s => perStem.get(s).filter(c => c.type === MIXED_TYPE && c.mix === mix)), k);
+      clips.push(...got);
+      picked += got.length;
+    }
+  }
+  counts[MIXED_TYPE].picked = picked;
+  return { layer: layerName, clips, counts, mixes, mixPlan };
 }
 
 /** pickClips の結果 → Markdown（どの層から、種類ごとに 塊がいくつ・混ざって捨てた数・2 回以上の塊・選んだ本数・セッション数） */
 export function clipPlanReport(picked, { perType = 20 } = {}) {
-  const { layer, clips, counts, mixes = {} } = picked;
-  let md = `### 切り出す塊（${layer} の注釈。本体 mic.js と同じく 0.7 秒あいたら区切り、前 0.25 秒・後 0.12 秒。違う種類が混ざった塊は種類の表からは外して「混ざり」に、1 種類 ${perType} 本まで、セッションの名前順に 1 本ずつ）\n\n`;
+  const { layer, clips, counts, mixes = {}, mixPlan } = picked;
+  let md = `### 切り出す塊（${layer} の注釈。本体 mic.js と同じく 0.7 秒あいたら区切り、前 0.25 秒・後 0.12 秒。違う種類が混ざった塊は種類の表からは外して「混ざり」に、1 種類 ${perType} 本まで、セッションの名前順に 1 本ずつ。混ざり は犬の声同士 ${perType} 本と人の声入り ${mixPlan?.human?.slots ?? '—'} 本の別枠で、組み合わせごとに塊の数に比例）\n\n`;
   md += `| 種類 | フォルダ | 塊（純） | 混ざって外した | 2 回以上の塊 | 選んだ | セッション |\n|---|---|---|---|---|---|---|\n`;
   for (const [ja, c] of Object.entries(counts)) md += `| ${ja} | ${CLIP_TYPES[ja] ?? MIXED_DIR} | ${c.all} | ${ja === MIXED_TYPE ? '—' : c.mixed} | ${c.multi} | ${c.picked} | ${c.stems} |\n`;
   const sec = clips.reduce((p, c) => p + (c.end - c.begin), 0);
   md += `\n- 合計 ${clips.length} 本・${sec.toFixed(1)} 秒（2 回以上鳴いた塊 ${clips.filter(c => c.calls >= 2).length} 本）\n`;
   const mixList = Object.entries(mixes).sort((a, b) => b[1] - a[1]);
   if (mixList.length) md += `- 混ざりの内訳（息以外の種類が 2 つ以上。本体 mic.js はこれをそのまま 1 塊にする）: ${mixList.map(([k, v]) => `${k} ${v}`).join('・')}\n`;
+  // 2026-11-29: 混ざり の配分（犬の声同士／人の声入りの別枠、組み合わせごとに塊の数に比例）
+  if (mixPlan && mixList.length) {
+    const show = p => { const q = Object.entries(p.quota); const n = q.reduce((s, [, v]) => s + v, 0); return `${p.all} 塊 → ${n} 本${q.length ? `（${q.map(([k, v]) => `${k} ${v}`).join('・')}）` : ''}`; };
+    md += `- 混ざりの選び方: 犬の声同士 ${show(mixPlan.dog)}／人の声入り ${show(mixPlan.human)}\n`;
+  }
   return md;
 }
 
